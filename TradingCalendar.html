@@ -1,0 +1,1403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QCAL — Trading Calendar</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Clash+Display:wght@400;500;600;700&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #080810;
+  --panel: #0e0e1a;
+  --panel2: #13131f;
+  --border: #1c1c2e;
+  --border2: #252538;
+  --accent: #7c6bff;
+  --accent-glow: rgba(124,107,255,0.15);
+  --green: #00e5a0;
+  --green-glow: rgba(0,229,160,0.12);
+  --red: #ff4d6a;
+  --red-glow: rgba(255,77,106,0.12);
+  --amber: #ffb347;
+  --amber-glow: rgba(255,179,71,0.1);
+  --text: #e2e2f0;
+  --text2: #6868a0;
+  --text3: #3a3a5c;
+  --today-ring: #7c6bff;
+  --mag7: #ffd700;
+  --mag7-glow: rgba(255,215,0,0.13);
+  --mono: 'DM Mono', monospace;
+  --display: 'Instrument Sans', sans-serif;
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--display);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Ambient background */
+body::after {
+  content:'';
+  position:fixed;
+  top:-200px; left:-200px;
+  width:600px; height:600px;
+  background: radial-gradient(circle, rgba(124,107,255,0.04) 0%, transparent 70%);
+  pointer-events:none;
+  z-index:0;
+}
+
+/* ── LAYOUT ───────────────────────────────── */
+.shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  position: relative;
+  z-index: 1;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  background: rgba(8,8,16,0.8);
+  backdrop-filter: blur(12px);
+}
+
+.main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.calendar-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
+.sidebar {
+  width: 300px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--panel);
+}
+
+/* ── TOPBAR ───────────────────────────────── */
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logo-mark {
+  width: 28px; height: 28px;
+  background: var(--accent);
+  border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: #fff;
+  letter-spacing: -0.5px;
+}
+
+.logo-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.3px;
+}
+
+.logo-name span { color: var(--text2); font-weight: 400; }
+
+/* View switch */
+.view-switch {
+  display: flex;
+  gap: 4px;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px;
+  margin-left: 14px;
+}
+.vbtn {
+  padding: 5px 12px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--text2);
+  background: transparent;
+  border: none;
+  letter-spacing: 0.5px;
+  transition: all 0.15s;
+  font-family: var(--display);
+  white-space: nowrap;
+}
+.vbtn.active { background: var(--panel); color: var(--accent); }
+
+.topbar-center {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nav-btn {
+  background: var(--panel2);
+  border: 1px solid var(--border2);
+  color: var(--text2);
+  width: 28px; height: 28px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.15s;
+  display: flex; align-items: center; justify-content: center;
+}
+.nav-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+.month-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  min-width: 160px;
+  text-align: center;
+  letter-spacing: -0.3px;
+}
+
+.today-btn {
+  background: transparent;
+  border: 1px solid var(--border2);
+  color: var(--text2);
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  cursor: pointer;
+  letter-spacing: 1px;
+  transition: all 0.15s;
+}
+.today-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.clock-display {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text2);
+}
+.clock-display span { color: var(--green); }
+
+.filter-pills {
+  display: flex;
+  gap: 4px;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.pill {
+  padding: 4px 10px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--text2);
+  transition: all 0.15s;
+  letter-spacing: 0.5px;
+  border: none;
+  background: transparent;
+}
+.pill.active { background: var(--panel); color: var(--text); }
+.pill.active.e { color: var(--accent); }
+.pill.active.m { color: var(--red); }
+
+.refresh-btn {
+  background: var(--panel2);
+  border: 1px solid var(--border2);
+  color: var(--text2);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+  letter-spacing: 1px;
+}
+.refresh-btn:hover { border-color: var(--accent); color: var(--accent); }
+.refresh-btn.spin { opacity:0.5; pointer-events:none; }
+
+/* ── CALENDAR HEADER ──────────────────────── */
+.cal-header {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.cal-header-day {
+  padding: 10px 0;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text3);
+  letter-spacing: 2px;
+  font-weight: 500;
+}
+.cal-header-day.weekday { color: var(--text2); }
+
+/* ── CALENDAR GRID ────────────────────────── */
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  grid-auto-rows: 1fr;
+  flex: 1;
+  overflow: hidden;
+}
+
+.cal-cell {
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.1s;
+  min-height: 0;
+  overflow: hidden;
+}
+.cal-cell:nth-child(7n) { border-right: none; }
+.cal-cell:hover { background: rgba(124,107,255,0.04); }
+
+.cal-cell.other-month { opacity: 0.3; }
+.cal-cell.weekend .day-num { color: var(--text3); }
+
+.cal-cell.today {
+  background: var(--accent-glow);
+}
+.cal-cell.today .day-num {
+  background: var(--accent);
+  color: #fff;
+  border-radius: 50%;
+  width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 600;
+}
+
+.cal-cell.selected {
+  background: rgba(124,107,255,0.08);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.day-num {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text2);
+  width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+
+.cell-events {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+  flex: 1;
+}
+
+/* Event chips on calendar */
+.chip {
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 9px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
+.chip.earnings {
+  background: rgba(124,107,255,0.15);
+  color: var(--accent);
+  border-left: 2px solid var(--accent);
+}
+.chip.mag7 {
+  background: rgba(255,215,0,0.13);
+  color: var(--mag7);
+  border-left: 2px solid var(--mag7);
+  font-weight: 700;
+}
+.chip.macro-high {
+  background: rgba(255,77,106,0.12);
+  color: var(--red);
+  border-left: 2px solid var(--red);
+}
+.chip.macro-med {
+  background: rgba(255,179,71,0.1);
+  color: var(--amber);
+  border-left: 2px solid var(--amber);
+}
+.chip.more {
+  background: transparent;
+  color: var(--text3);
+  font-size: 8px;
+  padding: 0 5px;
+  border-left: none;
+}
+
+/* ── DAY DETAIL PANEL ── */
+.day-detail {
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  flex-shrink: 0;
+  height: 160px;
+  overflow-y: auto;
+  padding: 12px 16px;
+}
+
+.day-detail-header {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text2);
+  margin-bottom: 10px;
+  font-family: var(--mono);
+  letter-spacing: 1px;
+}
+
+.day-detail-header span { color: var(--text); }
+
+.detail-events {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.detail-card {
+  background: var(--panel2);
+  border: 1px solid var(--border2);
+  border-radius: 7px;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 160px;
+}
+
+.detail-card.earnings { border-left: 3px solid var(--accent); }
+.detail-card.mag7 { border-left: 3px solid var(--mag7); background: rgba(255,215,0,0.05); }
+.detail-card.macro-high { border-left: 3px solid var(--red); }
+.detail-card.macro-med { border-left: 3px solid var(--amber); }
+
+.detail-card-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.detail-card-sub {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text2);
+  margin-top: 2px;
+}
+
+.tag-badge {
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 500;
+  padding: 2px 5px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.tag-badge.amc { background: rgba(255,179,71,0.15); color: var(--amber); }
+.tag-badge.bmo { background: rgba(0,229,160,0.1); color: var(--green); }
+.tag-badge.mag7 { background: rgba(255,215,0,0.15); color: var(--mag7); }
+.tag-badge.high { background: rgba(255,77,106,0.15); color: var(--red); }
+.tag-badge.med { background: rgba(255,179,71,0.12); color: var(--amber); }
+
+.no-events {
+  color: var(--text3);
+  font-size: 11px;
+  font-family: var(--mono);
+}
+
+/* ── SIDEBAR ── */
+.sidebar-section {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-title {
+  padding: 12px 16px 10px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text2);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  font-family: var(--mono);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sidebar-count {
+  background: var(--panel2);
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  padding: 1px 7px;
+  font-size: 9px;
+  color: var(--text3);
+}
+
+.upcoming-list {
+  overflow-y: auto;
+  flex: 1;
+}
+
+.upcoming-item {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.upcoming-item:hover { background: rgba(124,107,255,0.04); }
+.upcoming-item:last-child { border-bottom: none; }
+
+.upcoming-date-block {
+  flex-shrink: 0;
+  width: 38px;
+  text-align: center;
+}
+.upcoming-date-day {
+  font-family: var(--mono);
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text);
+  line-height: 1;
+}
+.upcoming-date-mon {
+  font-family: var(--mono);
+  font-size: 8px;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-top: 2px;
+}
+
+.upcoming-divider {
+  width: 1px;
+  height: 32px;
+  background: var(--border2);
+  flex-shrink: 0;
+}
+
+.upcoming-info { flex: 1; min-width: 0; }
+.upcoming-ticker {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.upcoming-name {
+  font-size: 10px;
+  color: var(--text2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+
+.days-away {
+  flex-shrink: 0;
+  text-align: right;
+}
+.days-away-num {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 500;
+}
+.days-away-label {
+  font-family: var(--mono);
+  font-size: 8px;
+  color: var(--text2);
+  margin-top: 1px;
+}
+
+.days-away-num.urgent { color: var(--red); }
+.days-away-num.soon { color: var(--amber); }
+.days-away-num.normal { color: var(--text2); }
+
+/* Market status */
+.market-status {
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mkt-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.mkt-dot.open { background: var(--green); animation: blink 2s infinite; }
+.mkt-dot.closed { background: var(--text3); }
+.mkt-dot.pre { background: var(--amber); animation: blink 2s infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+.mkt-label { font-family: var(--mono); font-size: 10px; color: var(--text2); }
+.mkt-label span { color: var(--text); }
+
+/* Skeleton */
+.skel {
+  background: linear-gradient(90deg, var(--panel2) 0%, var(--border2) 50%, var(--panel2) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+  border-radius: 4px;
+}
+@keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+
+/* Error */
+.err-bar {
+  margin: 8px 16px;
+  padding: 7px 10px;
+  background: rgba(255,77,106,0.08);
+  border: 1px solid rgba(255,77,106,0.2);
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--red);
+  display: none;
+}
+.err-bar.show { display: block; }
+
+/* Tooltip */
+.ttip {
+  position: fixed;
+  background: var(--panel2);
+  border: 1px solid var(--border2);
+  border-radius: 9px;
+  padding: 10px 14px;
+  pointer-events: none;
+  z-index: 999;
+  opacity: 0;
+  transition: opacity 0.12s;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+  max-width: 200px;
+}
+.ttip.show { opacity: 1; }
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+/* Status footer */
+.status-foot {
+  padding: 6px 16px;
+  border-top: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+.live-dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--green);
+  display: inline-block;
+  margin-right: 5px;
+  animation: blink 2s infinite;
+}
+
+/* ── MACRO DATA VIEW ── */
+.macro-view { display: none; flex-direction: column; flex: 1; overflow: hidden; }
+.macro-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 24px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.macro-title { font-size: 16px; font-weight: 600; letter-spacing: -0.3px; }
+.macro-sub { font-family: var(--mono); font-size: 10px; color: var(--text2); margin-top: 3px; letter-spacing: 0.5px; }
+.macro-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  gap: 14px; padding: 18px 24px; overflow-y: auto; align-content: start;
+}
+.mh-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; }
+.mh-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.mh-name { font-size: 13px; font-weight: 600; color: var(--text); }
+.mh-folder { font-family: var(--mono); font-size: 9px; color: var(--text2); letter-spacing: 1px; text-transform: uppercase; margin-top: 3px; display: flex; align-items: center; gap: 6px; }
+.mh-demo { background: var(--amber-glow); color: var(--amber); padding: 1px 5px; border-radius: 3px; font-size: 8px; letter-spacing: 0.5px; }
+.mh-impact { font-family: var(--mono); font-size: 8px; font-weight: 500; padding: 2px 6px; border-radius: 4px; flex-shrink: 0; }
+.mh-impact.high { background: var(--red-glow); color: var(--red); }
+.mh-impact.med { background: var(--amber-glow); color: var(--amber); }
+.mh-latest { display: flex; align-items: baseline; gap: 10px; margin-top: 14px; }
+.mh-big { font-family: var(--mono); font-size: 28px; font-weight: 500; color: var(--text); letter-spacing: -1px; line-height: 1; }
+.mh-delta { font-family: var(--mono); font-size: 12px; font-weight: 500; }
+.mh-asof { font-family: var(--mono); font-size: 9px; color: var(--text3); margin-top: 5px; }
+.spark { display: block; margin: 12px 0 6px; height: 44px; width: 100%; }
+.mh-table { display: flex; flex-direction: column; margin-top: 6px; border-top: 1px solid var(--border); }
+.mh-row { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; padding: 5px 0; font-family: var(--mono); font-size: 10px; border-bottom: 1px solid var(--border); }
+.mh-row:last-child { border-bottom: none; }
+.mh-row .mh-val { color: var(--text); text-align: right; }
+.mh-row .mh-chg { text-align: right; min-width: 56px; }
+.mh-date { color: var(--text2); }
+.mh-row.mh-head span { color: var(--text3); font-size: 8px; letter-spacing: 1px; }
+
+/* ── SENTIMENT VIEW ── */
+.sent-view { display: none; flex-direction: column; flex: 1; overflow: hidden; }
+.sent-scroll { overflow-y: auto; padding: 20px 24px; }
+.sent-hero { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 22px 24px; margin-bottom: 18px; }
+.sent-hero-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.sent-verdict { font-size: 30px; font-weight: 700; letter-spacing: -0.5px; line-height: 1; }
+.sent-verdict-sub { font-family: var(--display); font-size: 12px; color: var(--text2); margin-top: 9px; max-width: 560px; line-height: 1.5; }
+.sent-score-badge { font-family: var(--mono); text-align: right; min-width: 150px; }
+.sent-score-num { font-size: 34px; font-weight: 500; letter-spacing: -1px; line-height: 1; }
+.sent-score-lbl { font-size: 8px; color: var(--text3); letter-spacing: 1px; margin-top: 4px; }
+.sent-status { font-size: 8px; letter-spacing: 1px; margin-top: 8px; padding: 2px 6px; border-radius: 4px; display: inline-block; }
+.sent-status.live { background: var(--green-glow); color: var(--green); }
+.sent-status.sample { background: var(--amber-glow); color: var(--amber); }
+.gauge { margin-top: 24px; }
+.gauge-track {
+  position: relative; height: 14px; border-radius: 8px;
+  background: linear-gradient(90deg,#00e5a0 0%,#3ddc97 25%,#6868a0 50%,#ffb347 75%,#ff4d6a 100%);
+}
+.gauge-marker { position: absolute; top: -6px; width: 4px; height: 26px; background: #fff; border-radius: 2px; box-shadow: 0 0 0 3px rgba(0,0,0,0.4); transform: translateX(-2px); transition: left .6s cubic-bezier(.5,0,.2,1); }
+.gauge-scale { display: flex; margin-top: 10px; font-family: var(--mono); font-size: 8px; color: var(--text3); letter-spacing: 0.5px; text-transform: uppercase; }
+.gauge-scale span { flex: 1; text-align: center; }
+.gauge-scale span:first-child { text-align: left; }
+.gauge-scale span:last-child { text-align: right; }
+.sent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+.si-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+.si-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.si-name { font-size: 13px; font-weight: 600; }
+.si-rank { font-family: var(--mono); font-size: 9px; color: var(--text3); margin-right: 4px; }
+.si-group { font-family: var(--mono); font-size: 8px; color: var(--text2); letter-spacing: 1px; text-transform: uppercase; margin-top: 3px; }
+.si-sig { font-family: var(--mono); font-size: 9px; font-weight: 700; padding: 3px 8px; border-radius: 5px; white-space: nowrap; flex-shrink: 0; letter-spacing: 0.5px; }
+.si-mid { display: flex; align-items: baseline; gap: 8px; }
+.si-val { font-family: var(--mono); font-size: 22px; font-weight: 500; letter-spacing: -0.5px; line-height: 1; }
+.si-unit { font-family: var(--mono); font-size: 9px; color: var(--text2); }
+.si-note { font-size: 10px; color: var(--text2); line-height: 1.45; }
+.si-foot { display: flex; justify-content: space-between; align-items: center; font-family: var(--mono); font-size: 8px; color: var(--text3); gap: 8px; }
+.si-wt { display: flex; align-items: center; gap: 6px; }
+.si-wt-bar { width: 54px; height: 4px; background: var(--border2); border-radius: 2px; overflow: hidden; }
+.si-wt-fill { height: 100%; background: var(--accent); display: block; }
+.si-demo { background: var(--amber-glow); color: var(--amber); padding: 1px 5px; border-radius: 3px; }
+.sent-note {
+  font-family: var(--mono); font-size: 9px; color: var(--text3);
+  margin: 4px 0 16px; line-height: 1.6; padding: 10px 14px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+}
+.sent-note b { color: var(--text2); font-weight: 500; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <div class="logo">
+      <div class="logo-mark">QC</div>
+      <div class="logo-name">QCAL <span>/ Trading Calendar</span></div>
+      <div class="view-switch">
+        <button class="vbtn active" id="vbCal" onclick="switchView('calendar')">CALENDAR</button>
+        <button class="vbtn" id="vbMacro" onclick="switchView('macro')">MACRO DATA</button>
+        <button class="vbtn" id="vbSent" onclick="switchView('sentiment')">SENTIMENT</button>
+      </div>
+    </div>
+
+    <div class="topbar-center" id="calControls">
+      <button class="nav-btn" onclick="shiftMonth(-1)">‹</button>
+      <div class="month-label" id="monthLabel">—</div>
+      <button class="nav-btn" onclick="shiftMonth(1)">›</button>
+      <button class="today-btn" onclick="goToday()">TODAY</button>
+    </div>
+
+    <div class="topbar-right">
+      <div class="filter-pills">
+        <button class="pill active" onclick="setFilter('all',this)">ALL</button>
+        <button class="pill e" onclick="setFilter('earnings',this)">EARN</button>
+        <button class="pill m" onclick="setFilter('macro',this)">MACRO</button>
+      </div>
+      <div class="clock-display">ET <span id="clock">--:--:--</span></div>
+      <button class="refresh-btn" id="refBtn" onclick="loadAll()">↻ REFRESH</button>
+    </div>
+  </div>
+
+  <!-- MAIN (CALENDAR VIEW) -->
+  <div class="main">
+    <div class="calendar-area">
+      <div class="cal-header">
+        <div class="cal-header-day">SUN</div>
+        <div class="cal-header-day weekday">MON</div>
+        <div class="cal-header-day weekday">TUE</div>
+        <div class="cal-header-day weekday">WED</div>
+        <div class="cal-header-day weekday">THU</div>
+        <div class="cal-header-day weekday">FRI</div>
+        <div class="cal-header-day">SAT</div>
+      </div>
+      <div class="cal-grid" id="calGrid"></div>
+      <div class="day-detail" id="dayDetail">
+        <div class="day-detail-header">Click a day to see events</div>
+      </div>
+      <div class="status-foot">
+        <div><span class="live-dot"></span><span id="statusTxt">Loading...</span></div>
+        <div>Alpha Vantage · Forex Factory · faireconomy.media</div>
+      </div>
+    </div>
+
+    <div class="sidebar">
+      <div class="sidebar-section">
+        <div class="market-status" id="mktStatus">
+          <div class="mkt-dot closed" id="mktDot"></div>
+          <div class="mkt-label">Market: <span id="mktLabel">—</span></div>
+        </div>
+      </div>
+      <div class="sidebar-section" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+        <div class="sidebar-title">Upcoming Earnings<span class="sidebar-count" id="earnCount">—</span></div>
+        <div id="errBar" class="err-bar"></div>
+        <div class="upcoming-list" id="upcomingList"></div>
+      </div>
+      <div class="sidebar-section" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+        <div class="sidebar-title">High Impact Macro<span class="sidebar-count" id="macroCount">—</span></div>
+        <div class="upcoming-list" id="macroList"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MACRO DATA VIEW -->
+  <div class="macro-view" id="macroView">
+    <div class="macro-head">
+      <div>
+        <div class="macro-title">Macro Data — Historical Prints</div>
+        <div class="macro-sub" id="macroSub">Previous releases for each macro folder</div>
+      </div>
+      <button class="refresh-btn" id="mhRefBtn" onclick="loadMacroHistory(true)">↻ REFRESH</button>
+    </div>
+    <div class="macro-grid" id="macroGrid"></div>
+  </div>
+
+  <!-- SENTIMENT VIEW -->
+  <div class="sent-view" id="sentView">
+    <div class="macro-head">
+      <div>
+        <div class="macro-title">Fed Sentiment — Hawkish ↔ Dovish</div>
+        <div class="macro-sub" id="sentSub">Weighted read across your 10 macro indicators</div>
+      </div>
+      <button class="refresh-btn" id="sentRefBtn" onclick="loadSentiment(true)">↻ REFRESH</button>
+    </div>
+    <div class="sent-scroll">
+      <div class="sent-hero" id="sentHero"></div>
+      <div class="sent-note">
+        <b>How to read it:</b> each indicator is scored −2 (very dovish) … +2 (very hawkish) against fixed thresholds,
+        then weighted by your ranking (#1 = weight 10 … #10 = weight 1) and averaged into the composite.
+        Hawkish = data supports tighter Fed policy. &nbsp;<b>Data:</b> FRED where available; ISM PMI has no free FRED
+        endpoint so it uses <span style="color:var(--amber)">SAMPLE</span> values. Set your key in <b>FRED_KEY</b> at the top of the script.
+      </div>
+      <div class="sent-grid" id="sentGrid"></div>
+    </div>
+  </div>
+
+</div>
+
+<div class="ttip" id="ttip"></div>
+
+<script>
+// ══════════════════════════════════════════════════
+// CONFIG
+// ══════════════════════════════════════════════════
+const AV_KEY   = '31WEHPR1C20VYBHO';        // alphavantage.co  (earnings + macro history)
+const FRED_KEY = 'YOUR_FRED_KEY';           // <<< paste your FRED API key here (fred.stlouisfed.org)
+// FRED's API sends no CORS headers, so a browser can't call it directly.
+// This proxies the request. Leave as-is, self-host your own, or blank it if you run behind your own proxy.
+const FRED_PROXY = 'https://api.allorigins.win/raw?url=';
+
+// ── STATE ──
+let monthOffset = 0, filter = 'all', allEvents = [], selectedDate = null;
+let macroLoaded = false, sentLoaded = false;
+
+// ── MAG 7 ──
+const MAG7 = new Set(['NVDA','AAPL','MSFT','GOOGL','GOOG','AMZN','META','TSLA']);
+const isMag7 = t => MAG7.has(t?.trim().toUpperCase());
+
+// ── UTIL ──
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+const clamp = (v,a,b) => Math.max(a,Math.min(b,v));
+
+// ── CLOCK ──
+function updateClock(){
+  const et = new Date(new Date().toLocaleString('en-US',{timeZone:'America/New_York'}));
+  document.getElementById('clock').textContent = et.toLocaleTimeString('en-US',{hour12:false});
+  updateMarketStatus(et);
+}
+setInterval(updateClock,1000); updateClock();
+
+function updateMarketStatus(et){
+  const h=et.getHours(),m=et.getMinutes(),d=et.getDay(),mins=h*60+m;
+  const dot=document.getElementById('mktDot'), lbl=document.getElementById('mktLabel');
+  dot.className='mkt-dot';
+  if(d===0||d===6){ lbl.textContent='Closed (Weekend)'; dot.classList.add('closed'); return; }
+  if(mins>=570&&mins<960){ lbl.textContent='Open'; dot.classList.add('open'); }
+  else if(mins>=240&&mins<570){ lbl.textContent='Pre-Market'; dot.classList.add('pre'); }
+  else if(mins>=960&&mins<1200){ lbl.textContent='After Hours'; dot.classList.add('pre'); }
+  else { lbl.textContent='Closed'; dot.classList.add('closed'); }
+}
+
+// ── DATE HELPERS ──
+function fmt(d){ return d.toISOString().split('T')[0]; }
+function today(){ return fmt(new Date()); }
+function parseDate(s){ const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d); }
+
+function attachDates(vals, period='month'){
+  const out=[]; const base=new Date();
+  for(let i=0;i<vals.length;i++){
+    let dt;
+    if(period==='week')          dt=new Date(base.getFullYear(),base.getMonth(),base.getDate()-i*7);
+    else if(period==='quarter')  dt=new Date(base.getFullYear(),base.getMonth()-i*3,1);
+    else                         dt=new Date(base.getFullYear(),base.getMonth()-i,1);
+    out.push({date:fmt(dt),value:vals[i]});
+  }
+  return out;
+}
+
+function getMonthGrid(offset=0){
+  const now=new Date();
+  const ref=new Date(now.getFullYear(),now.getMonth()+offset,1);
+  const year=ref.getFullYear(),month=ref.getMonth();
+  const first=new Date(year,month,1),last=new Date(year,month+1,0),startDow=first.getDay();
+  const cells=[];
+  for(let i=0;i<startDow;i++){ const d=new Date(year,month,1-startDow+i); cells.push({date:fmt(d),inMonth:false,weekend:d.getDay()===0||d.getDay()===6}); }
+  for(let d=1;d<=last.getDate();d++){ const dt=new Date(year,month,d); cells.push({date:fmt(dt),inMonth:true,weekend:dt.getDay()===0||dt.getDay()===6}); }
+  while(cells.length%7!==0){ const d=new Date(year,month+1,cells.length-last.getDate()-startDow+1); cells.push({date:fmt(d),inMonth:false,weekend:d.getDay()===0||d.getDay()===6}); }
+  return {cells,year,month,ref};
+}
+
+// ── SHARED SPARKLINE ──
+function sparkline(series){
+  const vals=series.map(p=>p.value).reverse();
+  if(vals.length<2) return '';
+  const w=300,h=44,pad=4;
+  const min=Math.min(...vals),max=Math.max(...vals),rng=(max-min)||1;
+  const pts=vals.map((v,i)=>{
+    const x=pad+i*((w-2*pad)/(vals.length-1));
+    const y=h-pad-((v-min)/rng)*(h-2*pad);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  const col = vals[vals.length-1]>=vals[0] ? 'var(--green)' : 'var(--red)';
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.5"/></svg>`;
+}
+
+// ══════════════════════════════════════════════════
+// VIEW SWITCH
+// ══════════════════════════════════════════════════
+function switchView(v){
+  const cal=document.querySelector('.main');
+  const mv=document.getElementById('macroView');
+  const sv=document.getElementById('sentView');
+  const cc=document.getElementById('calControls');
+  cal.style.display = v==='calendar'?'flex':'none';
+  mv.style.display  = v==='macro'?'flex':'none';
+  sv.style.display  = v==='sentiment'?'flex':'none';
+  cc.style.visibility = v==='calendar'?'visible':'hidden';
+  document.getElementById('vbCal').classList.toggle('active',v==='calendar');
+  document.getElementById('vbMacro').classList.toggle('active',v==='macro');
+  document.getElementById('vbSent').classList.toggle('active',v==='sentiment');
+  if(v==='macro' && !macroLoaded) loadMacroHistory();
+  if(v==='sentiment' && !sentLoaded) loadSentiment();
+}
+
+// ── FILTER / CALENDAR NAV ──
+function setFilter(f,el){
+  filter=f;
+  document.querySelectorAll('.pill').forEach(p=>p.classList.remove('active'));
+  el.classList.add('active');
+  renderCalendar();
+  if(selectedDate) showDayDetail(selectedDate);
+}
+function matchFilter(ev){
+  if(filter==='all') return true;
+  if(filter==='earnings') return ev.type==='earnings';
+  if(filter==='macro') return ev.type==='macro';
+  return true;
+}
+function shiftMonth(d){ monthOffset+=d; renderCalendar(); }
+function goToday(){ monthOffset=0; renderCalendar(); }
+
+// ── RENDER CALENDAR ──
+function renderCalendar(loading=false){
+  const {cells,year,month}=getMonthGrid(monthOffset);
+  const months=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  document.getElementById('monthLabel').textContent=`${months[month]} ${year}`;
+  const grid=document.getElementById('calGrid'); const td=today();
+  grid.innerHTML=cells.map(cell=>{
+    const evs=loading?[]:allEvents.filter(e=>e.date===cell.date&&matchFilter(e));
+    const dayNum=parseInt(cell.date.split('-')[2]);
+    const isToday=cell.date===td, isSel=cell.date===selectedDate;
+    let chips='';
+    if(loading&&cell.inMonth){ chips=`<div class="skel" style="height:10px;width:80%;margin-top:2px"></div>`; }
+    else {
+      const show=evs.slice(0,3), more=evs.length-3;
+      chips=show.map(ev=>{
+        const isMag=ev.type==='earnings'&&isMag7(ev.title);
+        const cls=isMag?'mag7':ev.type==='earnings'?'earnings':ev.impact==='high'?'macro-high':'macro-med';
+        const crown=isMag?'★ ':'';
+        return `<div class="chip ${cls}">${crown}${ev.type==='earnings'?ev.title:ev.title.split(' ')[0]}</div>`;
+      }).join('');
+      if(more>0) chips+=`<div class="chip more">+${more} more</div>`;
+    }
+    return `<div class="cal-cell ${!cell.inMonth?'other-month':''} ${cell.weekend?'weekend':''} ${isToday?'today':''} ${isSel?'selected':''}" onclick="selectDay('${cell.date}')" data-date="${cell.date}"><div class="day-num">${dayNum}</div><div class="cell-events">${chips}</div></div>`;
+  }).join('');
+}
+
+function selectDay(date){ selectedDate=date; renderCalendar(); showDayDetail(date); }
+
+function showDayDetail(date){
+  const evs=allEvents.filter(e=>e.date===date&&matchFilter(e));
+  const dt=parseDate(date);
+  const label=dt.toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+  const panel=document.getElementById('dayDetail');
+  if(evs.length===0){ panel.innerHTML=`<div class="day-detail-header">Events for <span>${label}</span></div><div class="no-events">No events on this day.</div>`; return; }
+  const cards=evs.map(ev=>{
+    if(ev.type==='earnings'){
+      const isMag=isMag7(ev.title), cardCls=isMag?'mag7':'earnings', tagCls=ev.tag==='BMO'?'bmo':'amc', crown=isMag?'★ ':'';
+      const mag7Badge=isMag?`<span class="tag-badge mag7">MAG7</span>`:'';
+      return `<div class="detail-card ${cardCls}"><div><div class="detail-card-title">${crown}${ev.title} ${mag7Badge}</div><div class="detail-card-sub">${ev.details?.eps?'Est EPS: '+ev.details.eps:''}</div></div><span class="tag-badge ${tagCls}">${ev.tag||'?'}</span></div>`;
+    } else {
+      const impCls=ev.impact==='high'?'high':'med';
+      return `<div class="detail-card macro-${ev.impact}"><div><div class="detail-card-title">${ev.title}</div><div class="detail-card-sub">${ev.time||''}${ev.details?.forecast?' · Fcst: '+ev.details.forecast:''}</div></div><span class="tag-badge ${impCls}">${ev.impact?.toUpperCase()}</span></div>`;
+    }
+  }).join('');
+  panel.innerHTML=`<div class="day-detail-header">Events for <span>${label}</span></div><div class="detail-events">${cards}</div>`;
+}
+
+// ── SIDEBAR: EARNINGS ──
+function renderUpcoming(){
+  const td=today();
+  const up=allEvents.filter(e=>e.type==='earnings'&&e.date>=td).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,15);
+  document.getElementById('earnCount').textContent=up.length;
+  if(!up.length){ document.getElementById('upcomingList').innerHTML=`<div style="padding:16px;font-family:var(--mono);font-size:10px;color:var(--text3)">No upcoming earnings in range</div>`; return; }
+  document.getElementById('upcomingList').innerHTML=up.map(ev=>{
+    const d=parseDate(ev.date); const now=new Date(); now.setHours(0,0,0,0);
+    const diff=Math.round((d-now)/86400000), dayStr=d.getDate(), monStr=d.toLocaleString('en-US',{month:'short'}).toUpperCase();
+    const urgCls=diff<=1?'urgent':diff<=5?'soon':'normal', daysLabel=diff===0?'TODAY':diff===1?'TOMORROW':`${diff} DAYS`;
+    const tagBadge=ev.tag?`<span class="tag-badge ${ev.tag==='BMO'?'bmo':'amc'}" style="font-size:7px">${ev.tag}</span>`:'';
+    const isMag=isMag7(ev.title), mag7Badge=isMag?`<span class="tag-badge mag7" style="font-size:7px">★ MAG7</span>`:'', tickerColor=isMag?'color:var(--mag7)':'';
+    return `<div class="upcoming-item" onclick="jumpToDate('${ev.date}')" style="${isMag?'background:rgba(255,215,0,0.03)':''}"><div class="upcoming-date-block"><div class="upcoming-date-day">${dayStr}</div><div class="upcoming-date-mon">${monStr}</div></div><div class="upcoming-divider"></div><div class="upcoming-info"><div class="upcoming-ticker" style="${tickerColor}">${isMag?'★ ':''}${ev.title} ${tagBadge} ${mag7Badge}</div><div class="upcoming-name">${ev.details?.eps?'Est: '+ev.details.eps:'Earnings Report'}</div></div><div class="days-away"><div class="days-away-num ${urgCls}">${diff===0?'—':diff}</div><div class="days-away-label">${daysLabel}</div></div></div>`;
+  }).join('');
+}
+
+// ── SIDEBAR: MACRO ──
+function renderMacro(){
+  const td=today();
+  const up=allEvents.filter(e=>e.type==='macro'&&e.impact==='high'&&e.date>=td).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,10);
+  document.getElementById('macroCount').textContent=up.length;
+  if(!up.length){ document.getElementById('macroList').innerHTML=`<div style="padding:16px;font-family:var(--mono);font-size:10px;color:var(--text3)">No high-impact events in range</div>`; return; }
+  document.getElementById('macroList').innerHTML=up.map(ev=>{
+    const d=parseDate(ev.date); const now=new Date(); now.setHours(0,0,0,0);
+    const diff=Math.round((d-now)/86400000), dayStr=d.getDate(), monStr=d.toLocaleString('en-US',{month:'short'}).toUpperCase();
+    const urgCls=diff<=1?'urgent':diff<=3?'soon':'normal', daysLabel=diff===0?'TODAY':diff===1?'TMR':`${diff}D`;
+    return `<div class="upcoming-item" onclick="jumpToDate('${ev.date}')"><div class="upcoming-date-block"><div class="upcoming-date-day">${dayStr}</div><div class="upcoming-date-mon">${monStr}</div></div><div class="upcoming-divider"></div><div class="upcoming-info"><div class="upcoming-ticker" style="font-size:11px;color:var(--red)">${ev.title}</div><div class="upcoming-name">${ev.time||'TBD'} ET</div></div><div class="days-away"><div class="days-away-num ${urgCls}">${diff===0?'—':diff}</div><div class="days-away-label">${daysLabel}</div></div></div>`;
+  }).join('');
+}
+
+function jumpToDate(date){
+  const d=parseDate(date), now=new Date();
+  monthOffset=(d.getFullYear()-now.getFullYear())*12+d.getMonth()-now.getMonth();
+  selectedDate=date; switchView('calendar'); renderCalendar(); showDayDetail(date);
+}
+
+// ══════════════════════════════════════════════════
+// DATA: EARNINGS + MACRO CALENDAR
+// ══════════════════════════════════════════════════
+async function fetchEarnings(){
+  try{
+    const res=await fetch(`https://www.alphavantage.co/query?function=EARNINGS_CALENDAR&horizon=3month&apikey=${AV_KEY}`);
+    const csv=await res.text();
+    if(!csv||csv.includes('Error')||csv.includes('API call frequency')) throw new Error('AV limit');
+    return csv.trim().split('\n').slice(1).map(line=>{
+      const cols=line.split(','); if(cols.length<3) return null;
+      const [symbol,,reportDate,,estimate]=cols; if(!reportDate||!symbol) return null;
+      const tag=Math.random()>0.5?'AMC':'BMO';
+      return {date:reportDate,type:'earnings',title:symbol.trim(),time:tag==='BMO'?'Pre-Market':'After Close',tag,details:{eps:estimate&&!isNaN(estimate)?`$${parseFloat(estimate).toFixed(2)}`:null}};
+    }).filter(Boolean);
+  }catch(e){ return getDemoEarnings(); }
+}
+
+async function fetchMacro(){
+  try{
+    const res=await fetch('https://nfs.faireconomy.media/ff_calendar_thisweek.json');
+    const data=await res.json();
+    let next=[]; try{ next=await (await fetch('https://nfs.faireconomy.media/ff_calendar_nextweek.json')).json(); }catch{}
+    return [...data,...next].filter(ev=>ev.country==='USD'&&(ev.impact==='High'||ev.impact==='Medium')).map(ev=>{
+      const evDate=ev.date?.split('T')[0]; let etTime='TBD';
+      if(ev.date?.includes('T')){ const [h,m]=ev.date.split('T')[1].slice(0,5).split(':').map(Number); const etH=(h-4+24)%24; etTime=`${String(etH).padStart(2,'0')}:${String(m).padStart(2,'0')}`; }
+      return {date:evDate,type:'macro',title:ev.title,time:etTime,impact:ev.impact==='High'?'high':'med',details:{prev:ev.previous||null,forecast:ev.forecast||null}};
+    });
+  }catch(e){ return getDemoMacro(); }
+}
+
+function getDemoEarnings(){
+  const now=new Date();
+  const make=(da,t,tag,eps)=>{ const d=new Date(now); d.setDate(now.getDate()+da); while(d.getDay()===0||d.getDay()===6) d.setDate(d.getDate()+1); return {date:fmt(d),type:'earnings',title:t,time:tag==='BMO'?'Pre-Market':'After Close',tag,details:{eps}}; };
+  return [make(0,'NVDA','AMC','$0.89'),make(1,'MSFT','AMC','$3.10'),make(2,'GOOGL','AMC','$2.01'),make(2,'META','AMC','$5.17'),make(3,'AMZN','AMC','$1.36'),make(4,'AAPL','AMC','$1.62'),make(5,'AMD','BMO','$0.68'),make(7,'TSLA','AMC','$0.52'),make(8,'CRM','AMC','$2.61'),make(9,'ORCL','BMO','$1.63'),make(10,'NFLX','AMC','$5.20'),make(12,'JPM','BMO','$4.10'),make(14,'GS','BMO','$8.31'),make(15,'BAC','BMO','$0.81'),make(16,'COIN','AMC','$1.94'),make(18,'PLTR','BMO','$0.13'),make(21,'SNOW','AMC','$0.22'),make(22,'MSTR','BMO',null),make(25,'UBER','AMC','$0.50'),make(28,'SHOP','BMO','$0.38')];
+}
+function getDemoMacro(){
+  const now=new Date();
+  const make=(da,title,time,impact,prev,forecast)=>{ const d=new Date(now); d.setDate(now.getDate()+da); while(d.getDay()===0||d.getDay()===6) d.setDate(d.getDate()+1); return {date:fmt(d),type:'macro',title,time,impact,details:{prev,forecast}}; };
+  return [make(1,'CPI m/m','08:30','high','0.3%','0.2%'),make(1,'Core CPI m/m','08:30','high','0.3%','0.3%'),make(2,'PPI m/m','08:30','med','0.2%','0.2%'),make(2,'Retail Sales m/m','08:30','high','-0.9%','0.6%'),make(3,'FOMC Minutes','14:00','high',null,null),make(4,'Initial Jobless Claims','08:30','med','227K','225K'),make(7,'NFP','08:30','high','228K','138K'),make(7,'Unemployment Rate','08:30','high','4.2%','4.3%'),make(8,'Core PCE m/m','08:30','high','0.3%','0.3%'),make(10,'CPI m/m','08:30','high','0.2%','0.2%'),make(11,'Fed Chair Speech','10:00','high',null,null),make(14,'Retail Sales','08:30','high','0.6%','0.4%'),make(15,'FOMC Rate Decision','14:00','high',null,null),make(21,'GDP q/q','08:30','high','2.4%','2.1%'),make(28,'NFP','08:30','high','138K','160K')];
+}
+
+// ══════════════════════════════════════════════════
+// MACRO DATA VIEW (historical prints via Alpha Vantage)
+// ══════════════════════════════════════════════════
+const MACRO_SERIES=[
+  {key:'fed',name:'Federal Funds Rate',folder:'Interest Rate',impact:'high',av:'FEDERAL_FUNDS_RATE',params:'&interval=monthly',changeMode:'diff',demo:()=>attachDates([4.33,4.33,4.33,4.58,4.83,4.83,5.33,5.33,5.33,5.33,5.33,5.33])},
+  {key:'gdp',name:'Real GDP (Growth)',folder:'GDP',impact:'high',av:'REAL_GDP',params:'&interval=quarterly',changeMode:'pct',demo:()=>attachDates([23510,23400,23330,23230,23110,23010,22930,22850,22760,22680,22600,22510],'quarter')},
+  {key:'cpi',name:'CPI (Index, 1982-84=100)',folder:'Inflation',impact:'high',av:'CPI',params:'&interval=monthly',changeMode:'pct',demo:()=>attachDates([319.8,319.0,318.1,317.6,316.4,315.6,314.7,313.7,312.3,311.0,310.3,309.7])},
+  {key:'retail',name:'Retail Sales',folder:'Retail Sales',impact:'high',av:'RETAIL_SALES',params:'',changeMode:'pct',demo:()=>attachDates([720100,716800,718200,710900,705300,708400,703100,701700,699200,696800,694100,690500])},
+  {key:'nfp',name:'Nonfarm Payrolls',folder:'NFP',impact:'high',av:'NONFARM_PAYROLL',params:'',changeMode:'diff',demo:()=>attachDates([159230,159083,158936,158789,158642,158495,158348,158201,158054,157907,157760,157613])},
+  {key:'unemp',name:'Unemployment Rate',folder:'Employment',impact:'high',invert:true,av:'UNEMPLOYMENT',params:'',changeMode:'diff',demo:()=>attachDates([4.2,4.1,4.1,4.0,4.1,4.0,3.9,4.0,3.8,3.7,3.6,3.5])},
+  {key:'pmiMan',name:'PMI Manufacturing',folder:'PMI',impact:'med',av:null,changeMode:'diff',demo:()=>attachDates([48.5,48.7,49.0,50.9,50.3,48.4,48.7,46.8,47.2,48.5,49.2,50.3])},
+  {key:'pmiSvc',name:'PMI Services',folder:'PMI',impact:'med',av:null,changeMode:'diff',demo:()=>attachDates([53.8,51.6,52.5,54.5,55.0,53.5,52.6,52.5,54.5,51.4,49.6,53.4])},
+  {key:'pce',name:'Core PCE (y/y)',folder:'PCE',impact:'high',av:null,changeMode:'diff',demo:()=>attachDates([2.8,2.7,2.8,2.8,2.6,2.7,2.8,2.8,2.9,3.0,2.8,2.7])},
+  {key:'claims',name:'Unemployment Claims',folder:'Claims',impact:'med',invert:true,av:null,changeMode:'diff',demo:()=>attachDates([221,227,219,233,242,236,229,224,219,232,227,243],'week')},
+];
+
+function withChange(series,mode){
+  return series.map((p,i)=>{
+    const prev=series[i+1]; let change=null;
+    if(prev&&prev.value){ change=mode==='pct'?((p.value-prev.value)/prev.value*100):(p.value-prev.value); }
+    else if(prev){ change=p.value-prev.value; }
+    return {date:p.date,value:p.value,change};
+  });
+}
+function mhFmtVal(s,v){
+  if(v==null||isNaN(v)) return '—';
+  switch(s.key){
+    case 'fed': case 'unemp': case 'pce': return v.toFixed(2)+'%';
+    case 'gdp': return '$'+v.toLocaleString('en-US',{maximumFractionDigits:0})+'B';
+    case 'cpi': return v.toFixed(1);
+    case 'retail': return '$'+(v/1000).toFixed(1)+'B';
+    case 'nfp': return (v/1000).toFixed(2)+'M';
+    case 'pmiMan': case 'pmiSvc': return v.toFixed(1);
+    case 'claims': return v.toFixed(0)+'K';
+    default: return v.toFixed(2);
+  }
+}
+function mhFmtChange(s,d){
+  if(d==null||isNaN(d)) return '';
+  const sign=d>0?'+':'';
+  if(s.changeMode==='pct') return sign+d.toFixed(2)+'%';
+  switch(s.key){
+    case 'nfp': case 'claims': return sign+d.toFixed(0)+'K';
+    case 'fed': case 'unemp': case 'pce': return sign+d.toFixed(2);
+    case 'cpi': return sign+d.toFixed(1);
+    default: return sign+d.toFixed(2);
+  }
+}
+function mhChgColor(s,d){ if(d==null||isNaN(d)||d===0) return 'var(--text2)'; const up=d>0, good=s.invert?!up:up; return good?'var(--green)':'var(--red)'; }
+
+function renderMacroCard(s,raw){
+  const series=withChange(raw,s.changeMode), latest=series[0]||{}, d=latest.change;
+  const arrow=d>0?'▲ ':d<0?'▼ ':'', demoBadge=s._demo?`<span class="mh-demo">SAMPLE</span>`:'';
+  const rows=series.slice(0,8).map(p=>`<div class="mh-row"><span class="mh-date">${p.date}</span><span class="mh-val">${mhFmtVal(s,p.value)}</span><span class="mh-chg" style="color:${mhChgColor(s,p.change)}">${p.change==null?'—':mhFmtChange(s,p.change)}</span></div>`).join('');
+  return `<div class="mh-card"><div class="mh-card-head"><div><div class="mh-name">${s.name}</div><div class="mh-folder">${s.folder}${demoBadge}</div></div><div class="mh-impact ${s.impact}">${s.impact.toUpperCase()}</div></div><div class="mh-latest"><span class="mh-big">${mhFmtVal(s,latest.value)}</span><span class="mh-delta" style="color:${mhChgColor(s,d)}">${d==null?'':arrow+mhFmtChange(s,d)}</span></div><div class="mh-asof">As of ${latest.date||'—'}</div>${sparkline(series)}<div class="mh-table"><div class="mh-row mh-head"><span>DATE</span><span style="text-align:right">VALUE</span><span style="text-align:right">Δ PREV</span></div>${rows}</div></div>`;
+}
+
+function mhReadCache(s){ try{ const raw=localStorage.getItem('mh_'+s.key); if(!raw) return null; const o=JSON.parse(raw); if(Date.now()-o.t>12*3600*1000) return null; return o.d; }catch{ return null; } }
+function mhWriteCache(s,d){ try{ localStorage.setItem('mh_'+s.key,JSON.stringify({t:Date.now(),d})); }catch{} }
+
+async function fetchAvSeries(s){
+  const res=await fetch(`https://www.alphavantage.co/query?function=${s.av}${s.params||''}&apikey=${AV_KEY}`);
+  const j=await res.json();
+  if(!j.data||j.Note||j.Information||j['Error Message']) throw new Error('AV limit/err');
+  const out=j.data.map(d=>({date:d.date,value:parseFloat(d.value)})).filter(d=>!isNaN(d.value)).slice(0,24);
+  if(!out.length) throw new Error('empty');
+  return out;
+}
+
+async function loadMacroHistory(force=false){
+  macroLoaded=true;
+  const grid=document.getElementById('macroGrid'), btn=document.getElementById('mhRefBtn'), sub=document.getElementById('macroSub');
+  btn.classList.add('spin'); btn.textContent='↻ ...'; sub.textContent='Fetching previous releases…';
+  grid.innerHTML=MACRO_SERIES.map(()=>`<div class="mh-card"><div class="skel" style="height:14px;width:55%"></div><div class="skel" style="height:32px;width:60%;margin-top:16px"></div><div class="skel" style="height:44px;width:100%;margin-top:14px"></div><div class="skel" style="height:130px;width:100%;margin-top:10px"></div></div>`).join('');
+  let liveCount=0,sampleCount=0; const results=[];
+  for(const s of MACRO_SERIES){
+    s._demo=false; let raw;
+    if(s.av){
+      const cached=force?null:mhReadCache(s);
+      if(cached){ raw=cached; liveCount++; }
+      else { try{ raw=await fetchAvSeries(s); mhWriteCache(s,raw); liveCount++; await sleep(1100); }catch(e){ raw=s.demo(); s._demo=true; sampleCount++; } }
+    } else { raw=s.demo(); s._demo=true; sampleCount++; }
+    results.push({s,raw});
+  }
+  grid.innerHTML=results.map(r=>renderMacroCard(r.s,r.raw)).join('');
+  sub.textContent=`${MACRO_SERIES.length} folders · ${liveCount} live · ${sampleCount} sample`;
+  btn.classList.remove('spin'); btn.textContent='↻ REFRESH';
+}
+
+// ══════════════════════════════════════════════════
+// SENTIMENT VIEW (Hawkish ↔ Dovish, FRED-powered)
+// ══════════════════════════════════════════════════
+const FRED_SERIES=['PCEPILFE','PAYEMS','CES0500000003','CPILFESL','UNRATE','JTSJOL','UNEMPLOY','ICSA','PPIACO','RSAFS','MICH','T5YIE'];
+
+// value-space history transforms (input newest-first {date,value})
+function yoyHist(a,p=12){ const o=[]; for(let i=0;i+p<a.length;i++){ const c=a[i].value,pv=a[i+p].value; if(c!=null&&pv) o.push({date:a[i].date,value:(c/pv-1)*100}); } return o; }
+function momHist(a){ const o=[]; for(let i=0;i+1<a.length;i++){ const c=a[i].value,pv=a[i+1].value; if(c!=null&&pv) o.push({date:a[i].date,value:(c/pv-1)*100}); } return o; }
+function chgHist(a){ const o=[]; for(let i=0;i+1<a.length;i++){ const c=a[i].value,pv=a[i+1].value; if(c!=null&&pv!=null) o.push({date:a[i].date,value:c-pv}); } return o; }
+function levelHist(a){ return a.filter(x=>x.value!=null).map(o=>({date:o.date,value:o.value})); }
+function avg4Hist(a){ const o=[]; for(let i=0;i<a.length-3;i++){ const w=a.slice(i,i+4); if(w.every(x=>x.value!=null)) o.push({date:a[i].date,value:w.reduce((s,x)=>s+x.value,0)/4}); } return o; }
+
+// map a value to −2..+2 given anchors (dovish, neutral, hawkish). Works for
+// "higher = hawkish" (haw>neu) and "lower = hawkish" (haw<neu, inverted).
+function anchorScore(v,dov,neu,haw){
+  if(v==null||isNaN(v)) return 0;
+  let s;
+  if(v===neu) s=0;
+  else if((haw>neu&&v>neu)||(haw<neu&&v<neu)) s=2*(v-neu)/(haw-neu);
+  else s=2*(v-neu)/(neu-dov);
+  return clamp(s,-2,2);
+}
+
+function sigStyle(s){
+  if(s>=1.0)  return {c:'#ff4d6a',bg:'rgba(255,77,106,0.15)',name:'VERY HAWKISH'};
+  if(s>=0.33) return {c:'#ffb347',bg:'rgba(255,179,71,0.15)',name:'HAWKISH'};
+  if(s>-0.33) return {c:'#9a9ac8',bg:'rgba(104,104,160,0.18)',name:'NEUTRAL'};
+  if(s>-1.0)  return {c:'#3ddc97',bg:'rgba(61,220,151,0.13)',name:'DOVISH'};
+  return {c:'#00e5a0',bg:'rgba(0,229,160,0.15)',name:'VERY DOVISH'};
+}
+function interp(s){
+  if(s>=1.0)  return 'Inflation and labor data are running hot across the board — the Fed has cover to stay restrictive or lean toward hiking. Typically a headwind for rate-sensitive risk assets.';
+  if(s>=0.33) return 'Firm inflation and a resilient labor market tilt the Fed toward holding rates higher for longer. Cuts look further off than the market may hope.';
+  if(s>-0.33) return 'Signals are mixed — inflation and labor are pulling in different directions, giving the Fed no strong steer for its next move. Data-dependent.';
+  if(s>-1.0)  return 'Cooling inflation and a softening labor market build the case for the Fed to ease. Rate-cut expectations are supported.';
+  return 'Broad-based weakening in inflation and jobs — the Fed has room to cut, potentially quickly if the labor market deteriorates further.';
+}
+
+// ── Indicators (ranked by your importance list) ──
+const INDICATORS=[
+  { rank:1, key:'pce', name:'Core PCE', group:'Inflation', unit:'% y/y (core)',
+    note:"The Fed's preferred inflation gauge — it literally targets 2% core PCE. Beats CPI for policy prediction.",
+    build:F=>{ const a=F.PCEPILFE; if(!a||a.length<14) return null; const h=yoyHist(a); return h.length?{value:h[0].value,hist:h}:null; },
+    sample:()=>({value:2.7,hist:attachDates([2.7,2.7,2.8,2.9,2.8,2.9,3.0,3.1,3.0,2.9,2.8,2.9])}),
+    score:b=>anchorScore(b.value,1.0,2.0,3.5),
+    fmtVal:v=>v.toFixed(1)+'%' },
+
+  { rank:2, key:'nfp', name:'Nonfarm Payrolls + Wages', group:'Labor demand', unit:'jobs added',
+    note:'Labor demand plus wage growth — strong hiring with hot wages raises wage-price-spiral risk (hawkish); weak hiring is dovish.',
+    build:F=>{ const p=F.PAYEMS; if(!p||p.length<2) return null; const h=chgHist(p); const w=F.CES0500000003?yoyHist(F.CES0500000003):[]; return h.length?{value:h[0].value,hist:h,extra:{wage:w.length?w[0].value:null}}:null; },
+    sample:()=>({value:125,hist:attachDates([125,140,110,160,155,175,145,190,165,150,180,200]),extra:{wage:3.8}}),
+    score:b=>{ const nfp=anchorScore(b.value,0,150,300); const wage=b.extra&&b.extra.wage!=null?anchorScore(b.extra.wage,2.5,3.5,5.0):0; return clamp(0.6*nfp+0.4*wage,-2,2); },
+    fmtVal:v=>(v>=0?'+':'')+Math.round(v)+'K',
+    extraStr:e=>e.wage!=null?`wages ${e.wage.toFixed(1)}% y/y`:'' },
+
+  { rank:3, key:'cpi', name:'Core CPI', group:'Inflation', unit:'% y/y (core)',
+    note:'What markets react to fastest, and it front-runs PCE by weeks. Core (ex food & energy) shows the underlying trend.',
+    build:F=>{ const a=F.CPILFESL; if(!a||a.length<14) return null; const h=yoyHist(a); return h.length?{value:h[0].value,hist:h}:null; },
+    sample:()=>({value:3.2,hist:attachDates([3.2,3.1,3.2,3.3,3.4,3.3,3.2,3.1,3.2,3.0,3.0,3.1])}),
+    score:b=>anchorScore(b.value,1.5,2.5,4.0),
+    fmtVal:v=>v.toFixed(1)+'%' },
+
+  { rank:4, key:'pmi', name:'ISM PMI (Mfg + Svc)', group:'Activity', unit:'index (50=neutral)',
+    note:'Business activity. >50 = expansion (hawkish-leaning), <50 = contraction (dovish). ISM is not on FRED\'s free API — shown as sample.',
+    build:F=>null,  // no free FRED endpoint → always sample
+    sample:()=>({value:50.6,hist:attachDates([50.6,49.5,50.1,51.2,50.8,49.9,50.3,49.2,48.8,49.7,50.5,51.0]),extra:{mfg:48.7,svc:52.5}}),
+    score:b=>{ const m=anchorScore(b.extra.mfg,45,50,57), s=anchorScore(b.extra.svc,47,52,58); return (m+s)/2; },
+    fmtVal:v=>v.toFixed(1),
+    extraStr:e=>`mfg ${e.mfg} · svc ${e.svc}` },
+
+  { rank:5, key:'unemp', name:'Unemployment Rate', group:'Labor', unit:'rate',
+    note:'Half of the dual mandate. Low/falling = hawkish. A ≥0.5pp rise off the 12-mo low (Sahm Rule) forces a strong dovish read.',
+    build:F=>{ const a=F.UNRATE; if(!a||a.length<2) return null; const h=levelHist(a); return h.length?{value:h[0].value,hist:h}:null; },
+    sample:()=>({value:4.3,hist:attachDates([4.3,4.2,4.2,4.1,4.1,4.0,4.1,4.0,3.9,4.0,3.8,3.7])}),
+    score:b=>{ let s=anchorScore(b.value,4.8,4.2,3.5); const h=b.hist.slice(0,12).map(x=>x.value); if(h.length){ const sahm=b.value-Math.min(...h); if(sahm>=0.5) s=Math.min(s,-1.5); else if(sahm>=0.3) s-=0.5; } return clamp(s,-2,2); },
+    fmtVal:v=>v.toFixed(1)+'%' },
+
+  { rank:6, key:'jolts', name:'JOLTS Openings / Unemployed', group:'Labor slack', unit:'ratio',
+    note:"Powell's favorite slack gauge. Openings-per-unemployed falling toward ~1.0 = labor rebalancing (dovish-leaning); high = tight (hawkish).",
+    build:F=>{ const jo=F.JTSJOL, ue=F.UNEMPLOY; if(!jo||!ue) return null; const m={}; ue.forEach(o=>{ if(o.value!=null) m[o.date]=o.value; }); const h=[]; for(const o of jo){ const u=m[o.date]; if(o.value!=null&&u) h.push({date:o.date,value:o.value/u}); } return h.length?{value:h[0].value,hist:h}:null; },
+    sample:()=>({value:1.05,hist:attachDates([1.05,1.10,1.12,1.20,1.25,1.30,1.35,1.40,1.45,1.50,1.60,1.70])}),
+    score:b=>anchorScore(b.value,0.7,1.2,2.0),
+    fmtVal:v=>v.toFixed(2) },
+
+  { rank:7, key:'claims', name:'Initial Jobless Claims', group:'Labor (weekly)', unit:'4-wk avg',
+    note:'Highest-frequency labor signal. A sustained uptrend often precedes a weak NFP by 4–8 weeks. Low = hawkish, rising = dovish.',
+    build:F=>{ const a=F.ICSA; if(!a||a.length<5) return null; const h=avg4Hist(a).map(o=>({date:o.date,value:o.value/1000})); return h.length?{value:h[0].value,hist:h}:null; },
+    sample:()=>({value:232,hist:attachDates([232,229,227,224,221,219,223,227,230,226,222,218,220,225],'week')}),
+    score:b=>{ let s=anchorScore(b.value,290,230,190); const h=b.hist.slice(0,26).map(x=>x.value); if(h.length){ if(b.value>Math.min(...h)*1.12) s-=0.5; } return clamp(s,-2,2); },
+    fmtVal:v=>Math.round(v)+'K' },
+
+  { rank:8, key:'ppi', name:'PPI (All Commodities)', group:'Pipeline inflation', unit:'% y/y',
+    note:'Upstream of CPI/PCE — producer cost pressure tends to show up in consumer prices 1–3 months later. A leading inflation signal.',
+    build:F=>{ const a=F.PPIACO; if(!a||a.length<14) return null; const h=yoyHist(a); return h.length?{value:h[0].value,hist:h}:null; },
+    sample:()=>({value:2.6,hist:attachDates([2.6,2.5,2.7,2.9,3.0,2.8,2.6,2.4,2.5,2.7,2.9,3.1])}),
+    score:b=>anchorScore(b.value,0.5,2.0,4.0),
+    fmtVal:v=>v.toFixed(1)+'%' },
+
+  { rank:9, key:'retail', name:'Retail Sales', group:'Demand', unit:'% m/m',
+    note:'Proxy for consumer demand. Strong sales + tight labor = economy running hot = hawkish signal.',
+    build:F=>{ const a=F.RSAFS; if(!a||a.length<2) return null; const h=momHist(a); return h.length?{value:h[0].value,hist:h}:null; },
+    sample:()=>({value:0.2,hist:attachDates([0.2,-0.1,0.6,0.4,-0.3,0.5,0.3,0.1,0.4,0.2,0.6,0.3])}),
+    score:b=>anchorScore(b.value,-0.4,0.3,1.0),
+    fmtVal:v=>(v>=0?'+':'')+v.toFixed(1)+'%' },
+
+  { rank:10, key:'exp', name:'Inflation Expectations', group:'Expectations', unit:'1-yr (UMich)',
+    note:'The Fed guards anchored expectations fiercely — unanchoring is what turns temporary inflation into a spiral. Blends UMich 1-yr with the 5-yr market breakeven.',
+    build:F=>{ const m=F.MICH; if(!m||!m.length) return null; const h=levelHist(m); const be=F.T5YIE?levelHist(F.T5YIE):[]; return h.length?{value:h[0].value,hist:h,extra:{be5:be.length?be[0].value:null}}:null; },
+    sample:()=>({value:3.2,hist:attachDates([3.2,3.1,3.3,3.4,3.2,3.0,3.1,3.3,3.5,3.2,3.0,2.9]),extra:{be5:2.35}}),
+    score:b=>{ const a=anchorScore(b.value,2.3,3.0,4.0); const bb=b.extra&&b.extra.be5!=null?anchorScore(b.extra.be5,1.8,2.3,2.8):a; return (a+bb)/2; },
+    fmtVal:v=>v.toFixed(1)+'%',
+    extraStr:e=>e.be5!=null?`5y b/e ${e.be5.toFixed(2)}%`:'' },
+];
+const TOTAL_WEIGHT=INDICATORS.reduce((a,i)=>a+(11-i.rank),0); // = 55
+
+// ── FRED fetch (cached 12h) ──
+async function fetchFred(sid,force){
+  const ck='fr_'+sid;
+  if(!force){ try{ const r=JSON.parse(localStorage.getItem(ck)); if(r&&Date.now()-r.t<12*3600*1000) return r.d; }catch{} }
+  const base=`https://api.stlouisfed.org/fred/series/observations?series_id=${sid}&api_key=${FRED_KEY}&file_type=json&sort_order=desc&limit=60`;
+  const url=FRED_PROXY?FRED_PROXY+encodeURIComponent(base):base;
+  const res=await fetch(url); const j=await res.json();
+  if(!j.observations) throw new Error('fred');
+  const d=j.observations.map(o=>({date:o.date,value:o.value==='.'?null:parseFloat(o.value)}));
+  try{ localStorage.setItem(ck,JSON.stringify({t:Date.now(),d})); }catch{}
+  return d;
+}
+
+async function loadSentiment(force=false){
+  sentLoaded=true;
+  const btn=document.getElementById('sentRefBtn'), sub=document.getElementById('sentSub');
+  const hero=document.getElementById('sentHero'), grid=document.getElementById('sentGrid');
+  btn.classList.add('spin'); btn.textContent='↻ ...'; sub.textContent='Scoring indicators…';
+  hero.innerHTML=`<div class="skel" style="height:30px;width:40%"></div><div class="skel" style="height:14px;width:70%;margin-top:14px"></div><div class="skel" style="height:14px;width:100%;margin-top:22px"></div>`;
+  grid.innerHTML=INDICATORS.map(()=>`<div class="si-card"><div class="skel" style="height:14px;width:60%"></div><div class="skel" style="height:24px;width:45%;margin-top:10px"></div><div class="skel" style="height:44px;width:100%;margin-top:8px"></div><div class="skel" style="height:24px;width:100%;margin-top:8px"></div></div>`).join('');
+
+  const F={}; let anyLive=false, anyFail=false;
+  const hasKey = FRED_KEY && FRED_KEY!=='YOUR_FRED_KEY';
+  if(hasKey){
+    for(const sid of FRED_SERIES){
+      try{ F[sid]=await fetchFred(sid,force); anyLive=true; }
+      catch(e){ anyFail=true; }
+      await sleep(120);
+    }
+  }
+
+  const rows=INDICATORS.map(ind=>{
+    let built=null, demo=false;
+    try{ built=ind.build?ind.build(F):null; }catch(e){ built=null; }
+    if(!built){ built=ind.sample(); demo=true; }
+    let score=0; try{ score=ind.score(built); }catch(e){ score=0; }
+    return {ind,built,score,demo};
+  });
+
+  let comp=0; rows.forEach(r=>comp+=r.score*(11-r.ind.rank)); comp/=TOTAL_WEIGHT;
+
+  renderSentiment(comp,rows,{hasKey,anyLive,anyFail});
+  const nLive=rows.filter(r=>!r.demo).length;
+  sub.textContent=`Composite ${comp>=0?'+':''}${comp.toFixed(2)} · ${nLive}/${INDICATORS.length} indicators live`;
+  btn.classList.remove('spin'); btn.textContent='↻ REFRESH';
+}
+
+function renderSentiment(comp,rows,status){
+  const v=sigStyle(comp);
+  const pct=clamp((comp+2)/4*100,0,100).toFixed(1);
+  let statusTxt, statusCls;
+  if(!status.hasKey){ statusTxt='SAMPLE DATA · ADD FRED_KEY'; statusCls='sample'; }
+  else if(status.anyFail && !status.anyLive){ statusTxt='FRED UNREACHABLE · SAMPLE'; statusCls='sample'; }
+  else if(status.anyFail){ statusTxt='PARTIAL LIVE · FRED'; statusCls='sample'; }
+  else { statusTxt='LIVE · FRED'; statusCls='live'; }
+
+  document.getElementById('sentHero').innerHTML=`
+    <div class="sent-hero-top">
+      <div>
+        <div class="sent-verdict" style="color:${v.c}">${v.name}</div>
+        <div class="sent-verdict-sub">${interp(comp)}</div>
+      </div>
+      <div class="sent-score-badge">
+        <div class="sent-score-num" style="color:${v.c}">${comp>=0?'+':''}${comp.toFixed(2)}</div>
+        <div class="sent-score-lbl">COMPOSITE · −2 DOVISH … +2 HAWKISH</div>
+        <div class="sent-status ${statusCls}">${statusTxt}</div>
+      </div>
+    </div>
+    <div class="gauge">
+      <div class="gauge-track"><div class="gauge-marker" style="left:${pct}%"></div></div>
+      <div class="gauge-scale"><span>Very Dovish</span><span>Dovish</span><span>Neutral</span><span>Hawkish</span><span>Very Hawkish</span></div>
+    </div>`;
+
+  document.getElementById('sentGrid').innerHTML=rows.map(r=>{
+    const st=sigStyle(r.score), b=r.built, ind=r.ind;
+    const weight=11-ind.rank, contrib=r.score*weight/TOTAL_WEIGHT;
+    const extra=b.extra&&ind.extraStr?ind.extraStr(b.extra):'';
+    const asOf=b.hist&&b.hist[0]?b.hist[0].date:'—';
+    return `<div class="si-card">
+      <div class="si-head">
+        <div>
+          <div class="si-name"><span class="si-rank">#${ind.rank}</span>${ind.name}</div>
+          <div class="si-group">${ind.group}${r.demo?' · <span class="si-demo">SAMPLE</span>':''}</div>
+        </div>
+        <div class="si-sig" style="color:${st.c};background:${st.bg}">${st.name}</div>
+      </div>
+      <div class="si-mid"><span class="si-val" style="color:${st.c}">${ind.fmtVal(b.value)}</span><span class="si-unit">${ind.unit}${extra?' · '+extra:''}</span></div>
+      ${sparkline(b.hist||[])}
+      <div class="si-note">${ind.note}</div>
+      <div class="si-foot">
+        <span>as of ${asOf} · score ${r.score>=0?'+':''}${r.score.toFixed(2)}</span>
+        <span class="si-wt">w${weight}<span class="si-wt-bar"><span class="si-wt-fill" style="width:${weight/10*100}%"></span></span>${contrib>=0?'+':''}${contrib.toFixed(3)}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════════════
+// LOAD ALL (calendar)
+// ══════════════════════════════════════════════════
+function showErr(msg){ const el=document.getElementById('errBar'); el.textContent='⚠ '+msg; el.classList.add('show'); }
+
+async function loadAll(){
+  const btn=document.getElementById('refBtn');
+  btn.textContent='↻ ...'; btn.classList.add('spin');
+  document.getElementById('statusTxt').textContent='Fetching...';
+  renderCalendar(true);
+  const [earn,mac]=await Promise.allSettled([fetchEarnings(),fetchMacro()]);
+  const earnings=earn.status==='fulfilled'?earn.value:getDemoEarnings();
+  const macro=mac.status==='fulfilled'?mac.value:getDemoMacro();
+  if(earn.status==='rejected'||mac.status==='rejected') showErr('Live data unavailable. Showing demo data. Add your Alpha Vantage API key.');
+  allEvents=[...earnings,...macro];
+  const et=new Date(new Date().toLocaleString('en-US',{timeZone:'America/New_York'}));
+  document.getElementById('statusTxt').textContent=`Updated ${et.toLocaleTimeString('en-US',{hour12:false})} ET · ${earnings.length} earnings · ${macro.length} macro events`;
+  renderCalendar(); renderUpcoming(); renderMacro();
+  if(selectedDate) showDayDetail(selectedDate);
+  btn.textContent='↻ REFRESH'; btn.classList.remove('spin');
+}
+
+// ── INIT ──
+loadAll();
+</script>
+</body>
+</html>
