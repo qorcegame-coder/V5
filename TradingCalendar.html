@@ -1325,7 +1325,7 @@ async function loadSentiment(force=false){
   hero.innerHTML=`<div class="skel" style="height:30px;width:40%"></div><div class="skel" style="height:14px;width:70%;margin-top:14px"></div><div class="skel" style="height:14px;width:100%;margin-top:22px"></div>`;
   grid.innerHTML=INDICATORS.map(()=>`<div class="si-card"><div class="skel" style="height:14px;width:60%"></div><div class="skel" style="height:24px;width:45%;margin-top:10px"></div><div class="skel" style="height:44px;width:100%;margin-top:8px"></div><div class="skel" style="height:24px;width:100%;margin-top:8px"></div></div>`).join('');
 
-  const F={}; let anyLive=false, anyFail=false;
+  const F={}; let anyLive=false, anyFail=false, firstErr='';
   const hasKey = FRED_KEY && FRED_KEY!=='YOUR_FRED_KEY';
   if(hasKey){
     // Fetch all series in parallel; each independently falls back to sample on
@@ -1333,7 +1333,7 @@ async function loadSentiment(force=false){
     const settled = await Promise.allSettled(FRED_SERIES.map(sid=>fetchFred(sid,force)));
     FRED_SERIES.forEach((sid,i)=>{
       if(settled[i].status==='fulfilled'){ F[sid]=settled[i].value; anyLive=true; }
-      else { anyFail=true; }
+      else { anyFail=true; if(!firstErr) firstErr=String(settled[i].reason&&settled[i].reason.message||settled[i].reason); }
     });
   }
 
@@ -1347,9 +1347,11 @@ async function loadSentiment(force=false){
 
   let comp=0; rows.forEach(r=>comp+=r.score*(11-r.ind.rank)); comp/=TOTAL_WEIGHT;
 
-  renderSentiment(comp,rows,{hasKey,anyLive,anyFail});
+  renderSentiment(comp,rows,{hasKey,anyLive,anyFail,err:firstErr});
   const nLive=rows.filter(r=>!r.demo).length;
-  sub.textContent=`Composite ${comp>=0?'+':''}${comp.toFixed(2)} · ${nLive}/${INDICATORS.length} indicators live`;
+  let subTxt=`Composite ${comp>=0?'+':''}${comp.toFixed(2)} · ${nLive}/${INDICATORS.length} indicators live`;
+  if(hasKey && nLive===0 && firstErr) subTxt+=` · proxy error: ${firstErr}`;
+  sub.textContent=subTxt;
   btn.classList.remove('spin'); btn.textContent='↻ REFRESH';
 }
 
@@ -1372,6 +1374,7 @@ function renderSentiment(comp,rows,status){
         <div class="sent-score-num" style="color:${v.c}">${comp>=0?'+':''}${comp.toFixed(2)}</div>
         <div class="sent-score-lbl">COMPOSITE · −2 DOVISH … +2 HAWKISH</div>
         <div class="sent-status ${statusCls}">${statusTxt}</div>
+        ${status.err&&statusCls==='sample'?`<div style="font-family:var(--mono);font-size:8px;color:var(--text3);margin-top:6px;max-width:230px;line-height:1.4">last error: ${status.err}</div>`:''}
       </div>
     </div>
     <div class="gauge">
