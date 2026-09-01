@@ -833,10 +833,16 @@ body::after {
 // CONFIG
 // ══════════════════════════════════════════════════
 const AV_KEY   = '31WEHPR1C20VYBHO';        // alphavantage.co  (earnings + macro history)
-const FRED_KEY = 'YOUR_FRED_KEY';           // <<< paste your FRED API key here (fred.stlouisfed.org)
-// FRED's API sends no CORS headers, so a browser can't call it directly.
-// This proxies the request. Leave as-is, self-host your own, or blank it if you run behind your own proxy.
-const FRED_PROXY = 'https://api.allorigins.win/raw?url=';
+const FRED_KEY = 'a88f8d945edc2f9debece326dce2f216';   // FRED API key (fred.stlouisfed.org)
+// FRED sends no CORS headers, so the browser can't call it directly. We try a
+// chain of public CORS proxies and use whichever answers first. If you self-host
+// a proxy, put it first in this list for best reliability.
+const FRED_PROXIES = [
+  u => 'https://corsproxy.io/?url=' + encodeURIComponent(u),
+  u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
+  u => 'https://thingproxy.freeboard.io/fetch/' + u,
+  u => u,   // last resort: direct (works only if the browser allows it)
+];
 
 // ── STATE ──
 let monthOffset = 0, filter = 'all', allEvents = [], selectedDate = null;
@@ -1282,12 +1288,20 @@ async function fetchFred(sid,force){
   const ck='fr_'+sid;
   if(!force){ try{ const r=JSON.parse(localStorage.getItem(ck)); if(r&&Date.now()-r.t<12*3600*1000) return r.d; }catch{} }
   const base=`https://api.stlouisfed.org/fred/series/observations?series_id=${sid}&api_key=${FRED_KEY}&file_type=json&sort_order=desc&limit=60`;
-  const url=FRED_PROXY?FRED_PROXY+encodeURIComponent(base):base;
-  const res=await fetch(url); const j=await res.json();
-  if(!j.observations) throw new Error('fred');
-  const d=j.observations.map(o=>({date:o.date,value:o.value==='.'?null:parseFloat(o.value)}));
-  try{ localStorage.setItem(ck,JSON.stringify({t:Date.now(),d})); }catch{}
-  return d;
+  let lastErr;
+  for(const build of FRED_PROXIES){
+    try{
+      const res=await fetch(build(base));
+      if(!res.ok) throw new Error('http '+res.status);
+      let j=await res.json();
+      if(j&&typeof j.contents==='string') j=JSON.parse(j.contents); // some proxies wrap the body
+      if(!j.observations) throw new Error('no observations');
+      const d=j.observations.map(o=>({date:o.date,value:o.value==='.'?null:parseFloat(o.value)}));
+      try{ localStorage.setItem(ck,JSON.stringify({t:Date.now(),d})); }catch{}
+      return d;
+    }catch(e){ lastErr=e; }
+  }
+  throw lastErr||new Error('fred unreachable');
 }
 
 async function loadSentiment(force=false){
@@ -1398,6 +1412,8 @@ async function loadAll(){
 
 // ── INIT ──
 loadAll();
+// Prefetch the sentiment engine in the background so the tab is live the moment it's opened.
+loadSentiment();
 </script>
 </body>
 </html>
