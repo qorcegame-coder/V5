@@ -837,9 +837,15 @@ const FRED_KEY = 'a88f8d945edc2f9debece326dce2f216';   // FRED API key (fred.stl
 // FRED sends no CORS headers, so the browser can't call it directly. We try a
 // chain of public CORS proxies and use whichever answers first. If you self-host
 // a proxy, put it first in this list for best reliability.
+// If the public proxies are unreliable, deploy your own (10-line Cloudflare
+// Worker — ask in chat) and paste its URL here; it will be tried FIRST.
+const FRED_PROXY_OVERRIDE = '';   // e.g. 'https://fred-proxy.you.workers.dev/?url='
 const FRED_PROXIES = [
-  u => 'https://corsproxy.io/?url=' + encodeURIComponent(u),
+  ...(FRED_PROXY_OVERRIDE ? [u => FRED_PROXY_OVERRIDE + encodeURIComponent(u)] : []),
   u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
+  u => 'https://api.codetabs.com/v1/proxy/?quest=' + encodeURIComponent(u),
+  u => 'https://corsproxy.io/?url=' + encodeURIComponent(u),
+  u => 'https://api.allorigins.win/get?url=' + encodeURIComponent(u),   // body wrapped in {contents}
   u => 'https://thingproxy.freeboard.io/fetch/' + u,
   u => u,   // last resort: direct (works only if the browser allows it)
 ];
