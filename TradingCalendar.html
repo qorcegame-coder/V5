@@ -855,6 +855,13 @@ const isMag7 = t => MAG7.has(t?.trim().toUpperCase());
 // ── UTIL ──
 const sleep = ms => new Promise(r=>setTimeout(r,ms));
 const clamp = (v,a,b) => Math.max(a,Math.min(b,v));
+// fetch with a hard timeout — a stalled proxy must reject, never hang forever.
+async function fetchTimeout(url, ms=7000){
+  const ac = new AbortController();
+  const t = setTimeout(()=>ac.abort(), ms);
+  try { return await fetch(url, {signal:ac.signal}); }
+  finally { clearTimeout(t); }
+}
 
 // ── CLOCK ──
 function updateClock(){
@@ -1291,7 +1298,7 @@ async function fetchFred(sid,force){
   let lastErr;
   for(const build of FRED_PROXIES){
     try{
-      const res=await fetch(build(base));
+      const res=await fetchTimeout(build(base), 7000);
       if(!res.ok) throw new Error('http '+res.status);
       let j=await res.json();
       if(j&&typeof j.contents==='string') j=JSON.parse(j.contents); // some proxies wrap the body
@@ -1315,11 +1322,13 @@ async function loadSentiment(force=false){
   const F={}; let anyLive=false, anyFail=false;
   const hasKey = FRED_KEY && FRED_KEY!=='YOUR_FRED_KEY';
   if(hasKey){
-    for(const sid of FRED_SERIES){
-      try{ F[sid]=await fetchFred(sid,force); anyLive=true; }
-      catch(e){ anyFail=true; }
-      await sleep(120);
-    }
+    // Fetch all series in parallel; each independently falls back to sample on
+    // timeout/error, so one bad proxy can never stall the whole dashboard.
+    const settled = await Promise.allSettled(FRED_SERIES.map(sid=>fetchFred(sid,force)));
+    FRED_SERIES.forEach((sid,i)=>{
+      if(settled[i].status==='fulfilled'){ F[sid]=settled[i].value; anyLive=true; }
+      else { anyFail=true; }
+    });
   }
 
   const rows=INDICATORS.map(ind=>{
