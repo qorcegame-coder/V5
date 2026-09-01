@@ -868,6 +868,23 @@ async function fetchTimeout(url, ms=7000){
   try { return await fetch(url, {signal:ac.signal}); }
   finally { clearTimeout(t); }
 }
+// Run tasks with limited concurrency so we don't burst the free CORS proxy and
+// get rate-limited. Returns Promise.allSettled-shaped results, in input order.
+async function runPool(items, worker, concurrency=3){
+  const results = new Array(items.length);
+  let idx = 0;
+  async function next(){
+    const i = idx++;
+    if(i >= items.length) return;
+    try { results[i] = {status:'fulfilled', value: await worker(items[i], i)}; }
+    catch(e){ results[i] = {status:'rejected', reason: e}; }
+    return next();
+  }
+  const runners = [];
+  for(let k=0; k<Math.min(concurrency, items.length); k++) runners.push(next());
+  await Promise.all(runners);
+  return results;
+}
 
 // ── CLOCK ──
 function updateClock(){
@@ -1330,7 +1347,11 @@ async function loadSentiment(force=false){
   if(hasKey){
     // Fetch all series in parallel; each independently falls back to sample on
     // timeout/error, so one bad proxy can never stall the whole dashboard.
-    const settled = await Promise.allSettled(FRED_SERIES.map(sid=>fetchFred(sid,force)));
+    const settled = await runPool(FRED_SERIES, async (sid,i)=>{
+      if(i) await sleep(i*90);                 // stagger starts to ease the proxy
+      try { return await fetchFred(sid,force); }
+      catch(e){ await sleep(700); return await fetchFred(sid,force); }  // one retry
+    }, 3);
     FRED_SERIES.forEach((sid,i)=>{
       if(settled[i].status==='fulfilled'){ F[sid]=settled[i].value; anyLive=true; }
       else { anyFail=true; if(!firstErr) firstErr=String(settled[i].reason&&settled[i].reason.message||settled[i].reason); }
