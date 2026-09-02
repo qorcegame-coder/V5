@@ -713,7 +713,7 @@ function regimeNA(l,reason){ return `<div class="rg-tile"><div class="rg-label">
 async function renderRegime(){
   const row=document.getElementById('regimeRow');
   row.innerHTML=['VIX · Volatility','SPY vs EMA50','NQ · QQQ vs EMA50'].map(l=>`<div class="rg-tile"><div class="rg-label">${l}</div><div class="rg-val skel" style="height:26px;width:90px;margin-top:6px"></div><div class="rg-tag" style="color:var(--text3)">loading…</div></div>`).join('');
-  const [vix,spy,qqq]=await Promise.all([ fetchYahoo('%5EVIX').catch(()=>null), fetchYahoo('SPY').catch(()=>null), fetchYahoo('QQQ').catch(()=>null) ]);
+  const [vix,spy,qqq]=await Promise.all([ fetchYahoo('^VIX').catch(()=>null), fetchYahoo('SPY').catch(()=>null), fetchYahoo('QQQ').catch(()=>null) ]);
   const tiles=[];
   if(vix){ const [lab,col]=vixLabel(vix.last); tiles.push(`<div class="rg-tile"><div class="rg-label">VIX · Volatility</div><div class="rg-val" style="color:${col}">${vix.last.toFixed(2)}</div><div class="rg-tag" style="color:${col}">${lab}</div></div>`); }
   else tiles.push(regimeNA('VIX · Volatility','enable CORS / proxy blocked'));
