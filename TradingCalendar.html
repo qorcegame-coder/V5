@@ -577,7 +577,7 @@ async function fetchAvSeries(s){
 // released print), or a sample fallback, then scores −2..+2 vs anchors.
 const SENT=[
   {key:'pce',   name:'Core PCE',           unit:'m/m',   w:10, src:'ff', ff:[/core pce/i],                                            anchors:[0.0,0.17,0.40], fmt:v=>v.toFixed(2)+'%', sample:0.20},
-  {key:'nfp',   name:'Nonfarm Payrolls',   unit:'chg',   w:9,  src:'av', av:'nfp',   tf:'chg',                                        anchors:[0,150,300],     fmt:v=>(v>=0?'+':'')+Math.round(v)+'K', sample:125},
+  {key:'nfp',   name:'Nonfarm Payrolls',   unit:'chg',   w:9,  src:'ff', ff:[/^non-farm employment change/i,/^nonfarm payroll/i], anchors:[0,150,300], fmt:v=>(v>=0?'+':'')+Math.round(v)+'K', sample:150},
   {key:'cpi',   name:'CPI (headline)',     unit:'y/y',   w:8,  src:'av', av:'cpi',   tf:'yoy',                                        anchors:[1.5,2.5,4.0],   fmt:v=>v.toFixed(1)+'%', sample:3.0},
   {key:'unemp', name:'Unemployment Rate',  unit:'rate',  w:7,  src:'av', av:'unemp', tf:'level', sahm:true,                           anchors:[4.8,4.2,3.5],   fmt:v=>v.toFixed(1)+'%', sample:4.3},
   {key:'pmiMan',name:'ISM Manufacturing',  unit:'index', w:4,  src:'ff', ff:[/ism manufacturing pmi/i,/manufacturing pmi/i],         anchors:[45,50,57],      fmt:v=>v.toFixed(1),     sample:48.7},
