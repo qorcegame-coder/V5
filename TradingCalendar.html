@@ -300,7 +300,8 @@ body::after { content:''; position:fixed; top:-200px; left:-200px; width:600px; 
         Hawkish = data supports tighter Fed policy. &nbsp;<b>Sources:</b>
         <span style="color:var(--green)">AV</span> = Alpha Vantage (computed),
         <span style="color:var(--accent)">FF</span> = Forex Factory latest release,
-        <span style="color:var(--amber)">SAMPLE</span> = no live source. JOLTS &amp; inflation-expectations are omitted (they need FRED).
+        <span style="color:var(--accent)">FF·LOG</span> = last real Forex Factory print saved locally (persists once seen),
+        <span style="color:var(--amber)">SAMPLE</span> = never seen yet. FF prints are logged from now on, building real history. JOLTS &amp; inflation-expectations are omitted (they need FRED).
       </div>
       <div id="sentBreak"></div>
 
@@ -593,9 +594,29 @@ function matchFF(events, patterns){
   if(!cands.length) return null;
   cands.sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
   const withActual=cands.filter(e=>e.actual!=null&&e.actual!=='');
-  const pick=withActual[0]||cands[0];
-  const val=parseFF(pick.actual)??parseFF(pick.previous);
-  return {value:val, date:String(pick.date||'').split('T')[0], title:pick.title};
+  if(withActual[0]){ const p=withActual[0]; return {value:parseFF(p.actual), date:String(p.date||'').split('T')[0], released:true}; }
+  const p=cands[0]; return {value:parseFF(p.previous), date:String(p.date||'').split('T')[0], released:false};
+}
+
+// ── Persist Forex Factory prints locally ("log it from now") ──
+// fflast_<key>: last known real value.  fflog_<key>: dated history of released
+// actuals (newest-first), which accumulates a real sparkline over time.
+function ffSetLast(key,obj){ try{ localStorage.setItem('fflast_'+key, JSON.stringify(obj)); }catch{} }
+function ffGetLast(key){ try{ return JSON.parse(localStorage.getItem('fflast_'+key)); }catch{ return null; } }
+function ffLog(key,value,date){
+  try{
+    const k='fflog_'+key; let arr=[]; try{ arr=JSON.parse(localStorage.getItem(k))||[]; }catch{}
+    if(!arr.some(x=>x.date===date)){ arr.unshift({date,value}); arr.sort((a,b)=>String(b.date).localeCompare(String(a.date))); arr=arr.slice(0,12); localStorage.setItem(k,JSON.stringify(arr)); }
+  }catch{}
+}
+function ffLogGet(key){ try{ const a=JSON.parse(localStorage.getItem('fflog_'+key)); return (a&&a.length)?a:null; }catch{ return null; } }
+function miniSpark(series,w=130,h=24){
+  const vals=series.map(p=>p.value).reverse();
+  if(vals.length<2) return '';
+  const pad=2, min=Math.min(...vals),max=Math.max(...vals),rng=(max-min)||1;
+  const pts=vals.map((v,i)=>{ const x=pad+i*((w-2*pad)/(vals.length-1)); const y=h-pad-((v-min)/rng)*(h-2*pad); return `${x.toFixed(1)},${y.toFixed(1)}`; }).join(' ');
+  const col=vals[vals.length-1]>=vals[0]?'var(--green)':'var(--red)';
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block;margin-top:5px"><polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.3"/></svg>`;
 }
 function sentValue(ind, ff){
   if(ind.src==='av'){
@@ -612,7 +633,14 @@ function sentValue(ind, ff){
   }
   if(ind.src==='ff'){
     const hit=matchFF(ff, ind.ff);
-    if(hit&&hit.value!=null) return {value:hit.value, src:'FF', asof:hit.date};
+    if(hit && hit.value!=null){
+      if(hit.released){ ffLog(ind.key,hit.value,hit.date); ffSetLast(ind.key,{value:hit.value,date:hit.date}); return {value:hit.value, src:'FF', asof:hit.date}; }
+      // Upcoming event: its "previous" is the last real release — persist and use it.
+      ffSetLast(ind.key,{value:hit.value,date:hit.date});
+      return {value:hit.value, src:'FF', asof:'last release'};
+    }
+    const last=ffGetLast(ind.key);            // nothing in the current window → last logged real value
+    if(last && last.value!=null) return {value:last.value, src:'FFlog', asof:last.date||'logged'};
     return {value:ind.sample, src:'sample'};
   }
   return {value:ind.sample, src:'sample'};
@@ -641,8 +669,13 @@ function renderSentiment(ff){
     </div>`;
   document.getElementById('sentBreak').innerHTML=`<div class="sb-grid">`+rows.map(r=>{
     const st=sigStyle(r.score);
-    return `<div class="sb-row"><div class="sb-main"><div class="sb-name">${r.ind.name} <span class="sb-src ${r.src}">${r.src}</span></div><div class="sb-sub">${r.ind.unit}${r.asof?' · '+r.asof:''} · w${r.ind.w} · score ${r.score>=0?'+':''}${r.score.toFixed(2)}</div></div><div class="sb-right"><div class="sb-val" style="color:${st.c}">${r.ind.fmt(r.value)}</div><div class="sb-sig" style="color:${st.c};background:${st.bg}">${st.name}</div></div></div>`;
+    const srcCls=r.src==='AV'?'AV':(r.src==='sample'?'sample':'FF');
+    const srcLbl=r.src==='AV'?'AV':(r.src==='sample'?'SAMPLE':(r.src==='FFlog'?'FF·LOG':'FF'));
+    const log=(r.ind.src==='ff')?ffLogGet(r.ind.key):null;
+    const spark=(log&&log.length>=2)?miniSpark(log):'';
+    return `<div class="sb-row"><div class="sb-main"><div class="sb-name">${r.ind.name} <span class="sb-src ${srcCls}">${srcLbl}</span></div><div class="sb-sub">${r.ind.unit}${r.asof?' · '+r.asof:''} · w${r.ind.w} · score ${r.score>=0?'+':''}${r.score.toFixed(2)}</div>${spark}</div><div class="sb-right"><div class="sb-val" style="color:${st.c}">${r.ind.fmt(r.value)}</div><div class="sb-sig" style="color:${st.c};background:${st.bg}">${st.name}</div></div></div>`;
   }).join('')+`</div>`;
+  return {nReal, nSample:SENT.length-nReal};
 }
 
 // ══════════════════════════════════════════════════
@@ -725,10 +758,8 @@ async function loadMacroHistory(force=false){
   let ff=[]; try{ ff=await fetchFFRaw(); }catch{}
 
   // Sentiment.
-  renderSentiment(ff);
-
-  const nReal=SENT.map(i=>sentValue(i,ff)).filter(r=>r.src!=='sample').length;
-  sub.textContent=`${live}/${MACRO_SERIES.length} folders live · sentiment ${nReal}/${SENT.length} live`;
+  const counts=renderSentiment(ff);
+  sub.textContent=`${live}/${MACRO_SERIES.length} folders live · sentiment ${counts.nReal}/${SENT.length} from live/logged data`;
   btn.classList.remove('spin'); btn.textContent='↻ REFRESH';
 }
 
