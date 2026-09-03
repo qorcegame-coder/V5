@@ -40,6 +40,20 @@ Responses cache under `./.fred_cache` — delete it to force a fresh pull.
   validity against the realised decision; it does **not** test whether the index
   beats market-implied odds (futures already price meetings ~95% by the day).
 
+## v1 vs v2 (real-rate restrictiveness)
+
+The run now reports **two** versions side by side:
+
+- **v1 — data only:** the original index (inflation/labor/demand levels).
+- **v2 — + real-rate:** adds one feature, **policy rate − core PCE y/y**. A high
+  real rate is restrictive, so it scores **dovish** (the Fed has room to ease).
+  This is the one piece of the "why they cut" story that lives in the data.
+
+Watch the **CUT recall** and **balanced accuracy** lines to see whether it helps.
+Expected: v2 catches the *deeply restrictive* cuts (2024) it can now justify, but
+still misses the more *discretionary/political* ones (2025) — because cut **timing**
+is a judgment call no macro feature can predict. `--rr-weight N` tunes its weight.
+
 ## Known simplifications
 
 - **ISM PMI is dropped** (no free FRED series); weights renormalise over the rest.

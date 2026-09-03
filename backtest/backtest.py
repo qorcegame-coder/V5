@@ -83,7 +83,7 @@ FOMC_DATES = [
 #   tf: 'level' | 'mom' (% m/m) | 'yoy' (% y/y) | 'chg' (level diff) | 'claims4'
 #   anchors: (dovish, neutral, hawkish) -- higher=hawkish unless haw < neu
 # ----------------------------------------------------------------------------
-INDICATORS = [
+BASE_INDICATORS = [
     dict(key="pce",    w=10, series="PCEPILFE",      tf="yoy",     anchors=(1.0, 2.0, 3.5)),
     dict(key="nfp",    w=9,  series="PAYEMS",        tf="chg",     anchors=(0, 150, 300)),
     dict(key="cpi",    w=8,  series="CPILFESL",      tf="yoy",     anchors=(1.5, 2.5, 4.0)),
@@ -93,6 +93,15 @@ INDICATORS = [
     dict(key="retail", w=2,  series="RSAFS",         tf="mom",     anchors=(-0.4, 0.3, 1.0)),
 ]
 TARGET_SERIES = "DFEDTARU"  # federal funds target range, upper limit
+
+# Real-rate restrictiveness = policy rate (DFEDTARU) - core inflation (Core PCE y/y).
+# A HIGH real rate is restrictive -> the Fed has room to ease -> DOVISH (so the
+# anchors are inverted: hawkish sits at a LOW/negative real rate). This is the
+# one part of the "why they cut" story that lives in the data; the timing of the
+# cut is discretionary/political and no data feature can capture that.
+REALRATE_IND = dict(key="realrate", w=8, tf="realrate",
+                    series="DFEDTARU", infl_series="PCEPILFE",
+                    anchors=(2.5, 0.5, -1.5))
 
 # ----------------------------------------------------------------------------
 # FRED access (with on-disk caching)
@@ -199,19 +208,31 @@ def indicator_score(ind, value, unemp_obs):
     return clamp(s, -2, 2)
 
 
-def composite_at(key, asof):
+def _real_rate_value(key, asof):
+    """policy rate known on `asof`  minus  vintage Core PCE y/y."""
+    rate = fred_get(key, "DFEDTARU", realtime=asof, obs_end=asof, limit=5)
+    pce = fred_get(key, "PCEPILFE", realtime=asof, obs_end=asof, limit=20)
+    if not rate or len(pce) <= 12 or not pce[12][1]:
+        return None
+    core_yoy = (pce[0][1] / pce[12][1] - 1) * 100
+    return rate[0][1] - core_yoy
+
+
+def composite_at(key, asof, indicators):
     """Reconstruct the index using data known on `asof` (day before a meeting).
     Returns (composite, n_used, detail dict)."""
-    # unemployment obs is needed for the Sahm rule; fetch once.
     unemp_obs = None
     total_w, acc, detail = 0.0, 0.0, {}
-    for ind in INDICATORS:
-        # For yoy we need 13 monthly points; grab generous history ending at asof.
-        obs = fred_get(key, ind["series"], realtime=asof, obs_end=asof, limit=80)
-        if ind["series"] == "UNRATE":
-            unemp_obs = obs
-        val = indicator_value(ind["key"], ind, obs)
-        sc = indicator_score(ind, val, unemp_obs if ind.get("sahm") else None)
+    for ind in indicators:
+        if ind["tf"] == "realrate":
+            val = _real_rate_value(key, asof)
+            sc = anchor_score(val, *ind["anchors"]) if val is not None else None
+        else:
+            obs = fred_get(key, ind["series"], realtime=asof, obs_end=asof, limit=80)
+            if ind["series"] == "UNRATE":
+                unemp_obs = obs
+            val = indicator_value(ind["key"], ind, obs)
+            sc = indicator_score(ind, val, unemp_obs if ind.get("sahm") else None)
         if sc is None:
             detail[ind["key"]] = None
             continue
@@ -299,12 +320,49 @@ def confusion(pairs):
 
 
 # ----------------------------------------------------------------------------
+def build_rows(key, meetings, indicators, actions):
+    """Compute the composite per meeting for a given indicator set."""
+    rows = []
+    for m in meetings:
+        asof = (dt.date.fromisoformat(m) - dt.timedelta(days=1)).isoformat()
+        try:
+            comp, n, detail = composite_at(key, asof, indicators)
+        except Exception as e:  # noqa
+            print(f"  {m}: data error ({e}); skipping")
+            continue
+        action = actions.get(m)
+        if action is None:
+            continue
+        rows.append(dict(meeting=m, comp=comp, n=n, actual=action[0], delta=action[1], detail=detail))
+    return rows
+
+
+def best_threshold(rows, fixed=None):
+    thresholds = [fixed] if fixed is not None else [round(x * 0.1, 1) for x in range(2, 11)]
+    best = None
+    for thr in thresholds:
+        ev = evaluate(rows, thr)
+        if ev and (best is None or ev["bal"] > best[1]["bal"]):
+            best = (thr, ev)
+    return best
+
+
+def summarize(name, rows, fixed=None):
+    thr, ev = best_threshold(rows, fixed)
+    r = ev["rec"]
+    print(f"\n=== {name} ===")
+    print(f"  best threshold {thr}   accuracy {ev['acc']*100:.0f}%   balanced accuracy {ev['bal']*100:.0f}%")
+    print(f"  recall:  HIKE {r['HIKE'][0]}/{r['HIKE'][1]}   HOLD {r['HOLD'][0]}/{r['HOLD'][1]}   CUT {r['CUT'][0]}/{r['CUT'][1]}")
+    return thr, ev
+
+
 def main():
     ap = argparse.ArgumentParser(description="Backtest the QCAL Fed-sentiment index vs FOMC decisions.")
     ap.add_argument("--key", default=os.environ.get("FRED_API_KEY"), help="FRED API key (or set FRED_API_KEY)")
     ap.add_argument("--start", default="2022-01-01")
     ap.add_argument("--end", default=dt.date.today().isoformat())
     ap.add_argument("--threshold", type=float, default=None, help="fix hawkish/dovish cutoff; default sweeps")
+    ap.add_argument("--rr-weight", type=float, default=None, help="override the real-rate weight (default 8)")
     ap.add_argument("--csv", default=None, help="write per-meeting rows to this file")
     args = ap.parse_args()
 
@@ -315,87 +373,89 @@ def main():
     print(f"Backtesting {len(meetings)} FOMC meetings ({meetings[0]} .. {meetings[-1]})")
     print("Reconstructing the index from vintage (point-in-time) FRED data ...\n")
 
-    rows = []
+    # actual decisions (independent of the index); compute once
+    actions = {}
     for m in meetings:
-        asof = (dt.date.fromisoformat(m) - dt.timedelta(days=1)).isoformat()
         try:
-            comp, n, detail = composite_at(args.key, asof)
-            action, delta = actual_action(args.key, m)
+            a, d = actual_action(args.key, m)
+            if a is not None:
+                actions[m] = (a, d)
         except Exception as e:  # noqa
-            print(f"  {m}: data error ({e}); skipping")
-            continue
-        rows.append(dict(meeting=m, comp=comp, n=n, actual=action, delta=delta, detail=detail))
+            print(f"  {m}: rate lookup failed ({e})")
 
-    rows = [r for r in rows if r["actual"] is not None]
-    if not rows:
-        sys.exit("No usable meetings (check key / connectivity).")
+    rr = dict(REALRATE_IND)
+    if args.rr_weight is not None:
+        rr["w"] = args.rr_weight
 
-    # ---- threshold selection ----
-    if args.threshold is not None:
-        thresholds = [args.threshold]
-    else:
-        thresholds = [round(x * 0.1, 1) for x in range(2, 11)]  # 0.2 .. 1.0
+    variants = [
+        ("v1  data only", BASE_INDICATORS),
+        (f"v2  + real-rate (w={rr['w']:g})", BASE_INDICATORS + [rr]),
+    ]
 
-    print("Threshold sweep (balanced accuracy = mean recall over HIKE/HOLD/CUT):")
-    print(f"  {'thr':>5} {'acc':>6} {'bal.acc':>8}   HIKE   HOLD   CUT")
-    best = None
-    for thr in thresholds:
-        ev = evaluate(rows, thr)
-        r = ev["rec"]
-        print(f"  {thr:>5} {ev['acc']*100:>5.0f}% {ev['bal']*100:>7.0f}%   "
-              f"{r['HIKE'][0]}/{r['HIKE'][1]:<3} {r['HOLD'][0]}/{r['HOLD'][1]:<3} {r['CUT'][0]}/{r['CUT'][1]:<3}")
-        if best is None or ev["bal"] > best[1]["bal"]:
-            best = (thr, ev)
-    thr, ev = best
-    print(f"\nBest balanced-accuracy threshold: {thr}  (bal.acc {ev['bal']*100:.0f}%, acc {ev['acc']*100:.0f}%, n={ev['n']})")
+    results = {}
+    for name, inds in variants:
+        rows = build_rows(args.key, meetings, inds, actions)
+        rows = [r for r in rows if r["actual"] is not None]
+        if not rows:
+            sys.exit("No usable meetings (check key / connectivity).")
+        thr, ev = summarize(name, rows, args.threshold)
+        results[name] = dict(rows=rows, thr=thr, ev=ev)
 
-    # ---- baselines ----
-    actuals = [r["actual"] for r in rows]
+    # ---- baselines (from the actual sequence) ----
+    ref_rows = results[variants[0][0]]["rows"]
+    actuals = [r["actual"] for r in ref_rows]
     majority = max(set(actuals), key=actuals.count)
     maj_pairs = [(a, majority) for a in actuals]
-    maj_acc = sum(1 for a, p in maj_pairs if a == p) / len(maj_pairs)
-    # persistence: predict same as previous meeting's actual
-    pers_pairs = []
-    for i in range(1, len(rows)):
-        pers_pairs.append((rows[i]["actual"], rows[i - 1]["actual"]))
-    pers_acc = sum(1 for a, p in pers_pairs if a == p) / len(pers_pairs) if pers_pairs else 0
-    pers_bal = balanced_accuracy(pers_pairs) if pers_pairs else 0
+    pers_pairs = [(ref_rows[i]["actual"], ref_rows[i - 1]["actual"]) for i in range(1, len(ref_rows))]
+    print("\n=== baselines to beat ===")
+    print(f"  always-'{majority}'   acc {sum(1 for a,p in maj_pairs if a==p)/len(maj_pairs)*100:.0f}%   bal.acc {balanced_accuracy(maj_pairs)*100:.0f}%")
+    print(f"  persistence        acc {sum(1 for a,p in pers_pairs if a==p)/len(pers_pairs)*100:.0f}%   bal.acc {balanced_accuracy(pers_pairs)*100:.0f}%")
+    pers_bal = balanced_accuracy(pers_pairs)
 
-    print("\nBaselines to beat:")
-    print(f"  always-'{majority}'   acc {maj_acc*100:.0f}%   bal.acc {balanced_accuracy(maj_pairs)*100:.0f}%")
-    print(f"  persistence        acc {pers_acc*100:.0f}%   bal.acc {pers_bal*100:.0f}%")
-    verdict = "ADDS signal over" if ev["bal"] > max(balanced_accuracy(maj_pairs), pers_bal) + 0.02 else "does NOT clearly beat"
-    print(f"  -> index {verdict} the baselines (balanced accuracy).")
+    # ---- did real-rate help? ----
+    v1, v2 = variants[0][0], variants[1][0]
+    b1, b2 = results[v1]["ev"]["bal"], results[v2]["ev"]["bal"]
+    c1 = results[v1]["ev"]["rec"]["CUT"]
+    c2 = results[v2]["ev"]["rec"]["CUT"]
+    print("\n=== did the real-rate signal help? ===")
+    print(f"  balanced accuracy:  {b1*100:.0f}%  ->  {b2*100:.0f}%   ({'+' if b2>=b1 else ''}{(b2-b1)*100:.0f} pts)")
+    print(f"  CUT recall:         {c1[0]}/{c1[1]}  ->  {c2[0]}/{c2[1]}")
+    print(f"  persistence bar:    {pers_bal*100:.0f}%  ({'v2 BEATS it' if b2 > pers_bal + 0.02 else 'v2 still below it'})")
 
-    # ---- confusion matrix at best threshold ----
-    m = confusion(ev["pairs"])
-    print("\nConfusion matrix @ thr", thr, " (rows=actual, cols=predicted):")
+    # ---- confusion matrix + per-meeting for v2 ----
+    thr2 = results[v2]["thr"]
+    ev2 = results[v2]["ev"]
+    m = confusion(ev2["pairs"])
+    print(f"\nConfusion matrix, {v2} @ thr {thr2} (rows=actual, cols=predicted):")
     print(f"  {'':6}" + "".join(f"{c:>7}" for c in CLASSES))
     for i, c in enumerate(CLASSES):
         print(f"  {c:6}" + "".join(f"{m[i][j]:>7}" for j in range(3)))
 
-    # ---- per-meeting table ----
-    print("\nPer-meeting detail:")
-    print(f"  {'meeting':11} {'comp':>6} {'pred':>5} {'actual':>6} {'Δbps':>6}  ok")
-    for r in rows:
-        p = predict(r["comp"], thr)
-        ok = "✓" if p == r["actual"] else "·"
-        cs = f"{r['comp']:+.2f}" if r["comp"] is not None else "  n/a"
+    rows1 = {r["meeting"]: r for r in results[v1]["rows"]}
+    thr1 = results[v1]["thr"]
+    print(f"\nPer-meeting detail (comp1 = data only, comp2 = + real-rate):")
+    print(f"  {'meeting':11} {'comp1':>6} {'comp2':>6} {'pred2':>5} {'actual':>6} {'Δbps':>6}  ok")
+    for r in results[v2]["rows"]:
+        p = predict(r["comp"], thr2)
+        ok = "OK" if p == r["actual"] else " ."
+        c1s = f"{rows1[r['meeting']]['comp']:+.2f}" if r["meeting"] in rows1 else "   -"
+        c2s = f"{r['comp']:+.2f}" if r["comp"] is not None else "   -"
         db = f"{int(round(r['delta']*100)):+d}" if r["delta"] is not None else ""
-        print(f"  {r['meeting']:11} {cs:>6} {str(p):>5} {r['actual']:>6} {db:>6}  {ok}")
+        print(f"  {r['meeting']:11} {c1s:>6} {c2s:>6} {str(p):>5} {r['actual']:>6} {db:>6}  {ok}")
 
     if args.csv:
         with open(args.csv, "w", newline="") as f:
             w = csv.writer(f)
-            w.writerow(["meeting", "composite", "n_indicators", "predicted", "actual", "delta_pct"] + [i["key"] for i in INDICATORS])
-            for r in rows:
-                w.writerow([r["meeting"], r["comp"], r["n"], predict(r["comp"], thr), r["actual"], r["delta"]]
-                           + [r["detail"].get(i["key"]) for i in INDICATORS])
+            w.writerow(["meeting", "comp_v1", "comp_v2", "predicted_v2", "actual", "delta_pct"])
+            for r in results[v2]["rows"]:
+                w.writerow([r["meeting"], rows1.get(r["meeting"], {}).get("comp"), r["comp"],
+                            predict(r["comp"], thr2), r["actual"], r["delta"]])
         print(f"\nWrote {args.csv}")
 
-    print("\nRemember: HOLD dominates and decisions are telegraphed. Read balanced")
-    print("accuracy vs the baselines above -- not raw accuracy -- and treat a ~30")
-    print("meeting sample as directional, not statistically significant.")
+    print("\nReminder: the threshold is tuned in-sample and the sample is tiny, so read")
+    print("this as face validity, not proven skill. Cut TIMING is discretionary/political")
+    print("and no macro feature can capture it -- real-rate only flags when a cut is")
+    print("JUSTIFIED (policy restrictive), not when the Fed will actually pull the trigger.")
 
 
 if __name__ == "__main__":
