@@ -301,8 +301,9 @@ body::after { content:''; position:fixed; top:-200px; left:-200px; width:600px; 
       <div class="sent-note">
         <b>Method:</b> each indicator scored −2 (very dovish) … +2 (very hawkish) vs fixed thresholds, weighted, and averaged.
         Hawkish = data supports tighter Fed policy. &nbsp;<b>Sources:</b>
-        <span style="color:var(--green)">AV</span> = Alpha Vantage (computed),
-        <span style="color:var(--accent)">FF</span> = Forex Factory feed (its free feed carries only the <i>previous</i> release, so it runs one print behind),
+        <span style="color:var(--green)">AV</span> = Alpha Vantage,
+        <span style="color:var(--green)">FRED</span> = live via your Worker (auto-updates; set <b>PROXY</b> at the top of the script — see backend/README.md),
+        <span style="color:var(--accent)">FF</span> = Forex Factory feed (free feed carries only the <i>previous</i> release, so it runs one print behind),
         <span style="color:var(--accent)">FF·LOG</span> = last value saved locally,
         <span style="color:var(--accent)">MANUAL</span> = you typed it in,
         <span style="color:var(--amber)">SAMPLE</span> = never seen yet.
@@ -323,9 +324,13 @@ body::after { content:''; position:fixed; top:-200px; left:-200px; width:600px; 
 // ══════════════════════════════════════════════════
 const AV_KEY = '31WEHPR1C20VYBHO';   // alphavantage.co
 
-// Market data (VIX / SPY / NQ) comes from Yahoo Finance, which needs CORS.
-// We try direct first (works if you enable CORS / run a CORS-off browser),
-// then fall back to public proxies. Put your own proxy first for reliability.
+// ── OPTIONAL: your Cloudflare Worker (see backend/README.md). When set, macro
+// indicators (Core PCE, claims, PPI, NFP) and the market tiles pull live from
+// FRED/Yahoo through it and auto-update — no pencil, no public proxies. Leave
+// empty to keep the Alpha Vantage + Forex Factory + pencil behaviour.
+const PROXY = '';   // e.g. 'https://qcal.you.workers.dev'  (no trailing slash)
+
+// Fallback CORS proxies for the market tiles when PROXY is not set.
 const PUBLIC_PROXIES = [
   u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
   u => 'https://api.codetabs.com/v1/proxy/?quest=' + encodeURIComponent(u),
@@ -337,6 +342,7 @@ const MARKET_PROXIES = [ u => u, ...PUBLIC_PROXIES ];  // direct first
 let monthOffset = 0, filter = 'all', allEvents = [], selectedDate = null;
 let macroLoaded = false;
 let AV_RAW = {};   // captured Alpha Vantage series for the sentiment engine
+let FRED_RAW = {}; // captured FRED values (via Worker) keyed by indicator
 let LAST_FF = [];  // last-fetched Forex Factory events (for re-render after manual edits)
 
 const MAG7 = new Set(['NVDA','AAPL','MSFT','GOOGL','GOOG','AMZN','META','TSLA']);
@@ -581,18 +587,45 @@ async function fetchAvSeries(s){
 // ══════════════════════════════════════════════════
 // Each indicator sources its latest value from AV (computed), FF (latest
 // released print), or a sample fallback, then scores −2..+2 vs anchors.
+// `fred` (used only when a Worker PROXY is configured) auto-updates the FF ones.
 const SENT=[
-  {key:'pce',   name:'Core PCE',           unit:'m/m',   w:10, src:'ff', ff:[/core pce/i],                                            anchors:[0.0,0.17,0.40], fmt:v=>v.toFixed(2)+'%', sample:0.20},
-  {key:'nfp',   name:'Nonfarm Payrolls',   unit:'chg',   w:9,  src:'ff', ff:[/^non-farm employment change/i,/^nonfarm payroll/i], anchors:[0,150,300], fmt:v=>(v>=0?'+':'')+Math.round(v)+'K', sample:150},
+  {key:'pce',   name:'Core PCE',           unit:'m/m',   w:10, src:'ff', fred:{series:'PCEPILFE',tf:'mom'}, ff:[/core pce/i],                                            anchors:[0.0,0.17,0.40], fmt:v=>v.toFixed(2)+'%', sample:0.20},
+  {key:'nfp',   name:'Nonfarm Payrolls',   unit:'chg',   w:9,  src:'ff', fred:{series:'PAYEMS',tf:'chg'},   ff:[/^non-farm employment change/i,/^nonfarm payroll/i], anchors:[0,150,300], fmt:v=>(v>=0?'+':'')+Math.round(v)+'K', sample:150},
   {key:'cpi',   name:'CPI (headline)',     unit:'y/y',   w:8,  src:'av', av:'cpi',   tf:'yoy',                                        anchors:[1.5,2.5,4.0],   fmt:v=>v.toFixed(1)+'%', sample:3.0},
   {key:'unemp', name:'Unemployment Rate',  unit:'rate',  w:7,  src:'av', av:'unemp', tf:'level', sahm:true,                           anchors:[4.8,4.2,3.5],   fmt:v=>v.toFixed(1)+'%', sample:4.3},
   {key:'pmiMan',name:'ISM Manufacturing',  unit:'index', w:4,  src:'ff', ff:[/ism manufacturing pmi/i,/manufacturing pmi/i],         anchors:[45,50,57],      fmt:v=>v.toFixed(1),     sample:48.7},
   {key:'pmiSvc',name:'ISM Services',       unit:'index', w:3,  src:'ff', ff:[/ism services pmi/i,/non-manufacturing pmi/i,/services pmi/i], anchors:[47,52,58], fmt:v=>v.toFixed(1),     sample:52.5},
-  {key:'claims',name:'Jobless Claims',     unit:'level', w:4,  src:'ff', ff:[/unemployment claims/i,/jobless claims/i,/initial claims/i], anchors:[290,230,190], fmt:v=>Math.round(v)+'K', sample:230},
-  {key:'ppi',   name:'PPI',                unit:'m/m',   w:3,  src:'ff', ff:[/^ppi m\/m/i,/producer price/i,/ppi/i],                   anchors:[0.0,0.20,0.50], fmt:v=>v.toFixed(1)+'%', sample:0.2},
+  {key:'claims',name:'Jobless Claims',     unit:'level', w:4,  src:'ff', fred:{series:'ICSA',tf:'claims4'}, ff:[/unemployment claims/i,/jobless claims/i,/initial claims/i], anchors:[290,230,190], fmt:v=>Math.round(v)+'K', sample:230},
+  {key:'ppi',   name:'PPI',                unit:'m/m',   w:3,  src:'ff', fred:{series:'PPIACO',tf:'mom'},    ff:[/^ppi m\/m/i,/producer price/i,/ppi/i],                   anchors:[0.0,0.20,0.50], fmt:v=>v.toFixed(1)+'%', sample:0.2},
   {key:'retail',name:'Retail Sales',       unit:'m/m',   w:2,  src:'av', av:'retail',tf:'mom',                                        anchors:[-0.4,0.3,1.0],  fmt:v=>(v>=0?'+':'')+v.toFixed(1)+'%', sample:0.2},
 ];
 const SENT_TW=SENT.reduce((a,i)=>a+i.w,0);
+
+// ── FRED via the Worker (auto-update; only used when PROXY is set) ──
+async function fredSeries(series){
+  const res=await fetchTimeout(`${PROXY}/fred?series=${encodeURIComponent(series)}&limit=60`, 8000);
+  if(!res.ok) throw new Error('http '+res.status);
+  const j=await res.json();
+  if(!j.observations) throw new Error('no observations');
+  return j.observations.map(o=>({date:o.date,value:o.value==='.'?null:parseFloat(o.value)})).filter(o=>o.value!=null);
+}
+function fredCompute(tf, a){
+  if(!a||!a.length) return null;
+  if(tf==='mom')    return a.length>1&&a[1].value?{value:(a[0].value/a[1].value-1)*100,date:a[0].date}:null;
+  if(tf==='chg')    return a.length>1?{value:a[0].value-a[1].value,date:a[0].date}:null;
+  if(tf==='yoy')    return a.length>12&&a[12].value?{value:(a[0].value/a[12].value-1)*100,date:a[0].date}:null;
+  if(tf==='claims4'){ const w=a.slice(0,4); return w.length===4?{value:w.reduce((s,x)=>s+x.value,0)/4/1000,date:a[0].date}:null; }
+  return {value:a[0].value,date:a[0].date};
+}
+// Fetch every FRED-backed indicator (in parallel) into FRED_RAW.
+async function loadFred(){
+  FRED_RAW={};
+  if(!PROXY) return;
+  const jobs=SENT.filter(i=>i.fred).map(async i=>{
+    try{ const a=await fredSeries(i.fred.series); const c=fredCompute(i.fred.tf,a); if(c) FRED_RAW[i.key]=c; }catch(e){}
+  });
+  await Promise.allSettled(jobs);
+}
 
 function parseFF(v){ if(v==null||v==='') return null; const m=String(v).replace(/,/g,'').match(/-?\d+(\.\d+)?/); return m?parseFloat(m[0]):null; }
 function matchFF(events, patterns){
@@ -659,6 +692,8 @@ function sentValue(ind, ff){
     return {value:ind.sample, src:'sample'};
   }
   if(ind.src==='ff'){
+    const fr=FRED_RAW[ind.key];               // live FRED via Worker (auto-updating) wins over the feed
+    if(fr && fr.value!=null){ ffLog(ind.key,fr.value,fr.date); return {value:fr.value, src:'FRED', asof:fr.date}; }
     const hit=matchFF(ff, ind.ff);
     if(hit && hit.value!=null){
       if(hit.released){ ffLog(ind.key,hit.value,hit.date); ffSetLast(ind.key,{value:hit.value,date:hit.date}); return {value:hit.value, src:'FF', asof:hit.date}; }
@@ -696,8 +731,8 @@ function renderSentiment(ff){
     </div>`;
   document.getElementById('sentBreak').innerHTML=`<div class="sb-grid">`+rows.map(r=>{
     const st=sigStyle(r.score);
-    const srcCls=r.src==='AV'?'AV':(r.src==='sample'?'sample':(r.src==='MANUAL'?'MANUAL':'FF'));
-    const srcLbl=r.src==='AV'?'AV':(r.src==='sample'?'SAMPLE':(r.src==='FFlog'?'FF·LOG':(r.src==='MANUAL'?'MANUAL':'FF')));
+    const srcCls=(r.src==='AV'||r.src==='FRED')?'AV':(r.src==='sample'?'sample':(r.src==='MANUAL'?'MANUAL':'FF'));
+    const srcLbl=r.src==='AV'?'AV':(r.src==='FRED'?'FRED':(r.src==='sample'?'SAMPLE':(r.src==='FFlog'?'FF·LOG':(r.src==='MANUAL'?'MANUAL':'FF'))));
     const log=ffLogGet(r.ind.key);
     const spark=(log&&log.length>=2)?miniSpark(log):'';
     const edit=`<span class="sb-edit" onclick="setManual('${r.ind.key}')" title="Type the latest value">✎</span>`
@@ -719,10 +754,14 @@ function ema(values, period){
 }
 async function fetchYahoo(symbol){
   const base=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=6mo&interval=1d`;
+  // If a Worker is configured, use it first (reliable); else the public proxies.
+  const routes = PROXY
+    ? [ `${PROXY}/yahoo?symbol=${encodeURIComponent(symbol)}&range=6mo`, ...MARKET_PROXIES.map(b=>b(base)) ]
+    : MARKET_PROXIES.map(b=>b(base));
   let lastErr;
-  for(const build of MARKET_PROXIES){
+  for(const url of routes){
     try{
-      const res=await fetchTimeout(build(base),7000);
+      const res=await fetchTimeout(url,7000);
       if(!res.ok) throw new Error('http '+res.status);
       let j=await res.json();
       if(j&&typeof j.contents==='string') j=JSON.parse(j.contents);
@@ -783,9 +822,11 @@ async function loadMacroHistory(force=false){
   }
   grid.innerHTML=results.map(r=>renderMacroCard(r.s,r.raw)).join('');
 
-  // Forex Factory latest prints (for PCE / claims / PMI / PPI).
+  // Forex Factory latest prints (for PCE / claims / PMI / PPI), plus live FRED
+  // via the Worker when configured (auto-updates PCE / claims / PPI / NFP).
   let ff=[]; try{ ff=await fetchFFRaw(); }catch{}
   LAST_FF=ff;
+  try{ await loadFred(); }catch{}
 
   // Sentiment.
   const counts=renderSentiment(ff);
