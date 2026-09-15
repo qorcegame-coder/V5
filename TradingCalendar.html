@@ -316,6 +316,10 @@ body::after { content:''; position:fixed; top:-200px; left:-200px; width:600px; 
       </div>
       <div id="sentBreak"></div>
 
+      <div class="mh-sec-title">Data Surprises — Actual vs Consensus <span style="color:var(--text3)">(accumulates from now)</span></div>
+      <div class="sent-note">Consensus <b>forecast</b> comes from the Forex Factory feed; the <b>actual</b> from FRED/AV. Each release logs one point — this section fills in over time (it can't be back-filled, because historical consensus forecasts are paid data). <span style="color:var(--amber)">ABOVE</span> = actual came in over forecast, <span style="color:var(--green)">BELOW</span> = under.</div>
+      <div id="surpBody"></div>
+
       <div class="mh-sec-title">Historical Prints</div>
       <div class="macro-grid" id="macroGrid"></div>
     </div>
@@ -672,6 +676,44 @@ function ffLog(key,value,date){
   }catch{}
 }
 function ffLogGet(key){ try{ const a=JSON.parse(localStorage.getItem('fflog_'+key)); return (a&&a.length)?a:null; }catch{ return null; } }
+
+// ── Data surprises (actual vs consensus forecast) ──
+// Forecast from the FF feed (released events only), actual from FRED/AV. Logged
+// per release, deduped by date, accumulating a real surprise history over time.
+function matchFFForecast(events, patterns){
+  const td=fmt(new Date());
+  const cands=events.filter(e=>patterns.some(p=>p.test(e.title||'')) && String(e.date||'').split('T')[0] <= td);
+  if(!cands.length) return null;
+  cands.sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
+  const f=parseFF(cands[0].forecast);
+  return f==null?null:{date:String(cands[0].date||'').split('T')[0], forecast:f};
+}
+function logSurprise(key, rec){
+  try{
+    const k='surp_'+key; let arr=[]; try{ arr=JSON.parse(localStorage.getItem(k))||[]; }catch{}
+    if(!arr.some(x=>x.date===rec.date)){ arr.unshift(rec); arr.sort((a,b)=>String(b.date).localeCompare(String(a.date))); arr=arr.slice(0,24); localStorage.setItem(k,JSON.stringify(arr)); }
+  }catch{}
+}
+function surpGet(key){ try{ const a=JSON.parse(localStorage.getItem('surp_'+key)); return (a&&a.length)?a:null; }catch{ return null; } }
+function renderSurprises(ff, rows){
+  const byKey={}; rows.forEach(r=>byKey[r.ind.key]=r);
+  SENT.forEach(ind=>{
+    const r=byKey[ind.key];
+    if(!r || r.value==null || r.src==='sample') return;          // only log a real actual
+    const fc=matchFFForecast(ff, ind.ff||[]);
+    if(fc && fc.forecast!=null) logSurprise(ind.key,{date:fc.date, forecast:fc.forecast, actual:r.value, surprise:r.value-fc.forecast});
+  });
+  const cards=SENT.map(ind=>{
+    const hist=surpGet(ind.key);
+    if(!hist) return `<div class="sb-row"><div class="sb-main"><div class="sb-name">${ind.name}</div><div class="sb-sub">no release logged yet</div></div><div class="sb-right"><div class="sb-val" style="color:var(--text3)">—</div></div></div>`;
+    const l=hist[0], s=l.surprise, up=s>0.0001, dn=s<-0.0001;
+    const col=up?'var(--amber)':(dn?'var(--green)':'var(--text2)'), lbl=up?'ABOVE':(dn?'BELOW':'IN LINE');
+    const bg=up?'rgba(255,179,71,0.15)':(dn?'rgba(0,229,160,0.15)':'rgba(104,104,160,0.18)');
+    const spark=hist.length>=2?miniSpark(hist.map(x=>({value:x.surprise}))):'';
+    return `<div class="sb-row"><div class="sb-main"><div class="sb-name">${ind.name}</div><div class="sb-sub">actual ${ind.fmt(l.actual)} vs fcst ${ind.fmt(l.forecast)} · ${l.date}</div>${spark}</div><div class="sb-right"><div class="sb-val" style="color:${col}">${(s>=0?'+':'')+(Math.abs(s)<10?s.toFixed(2):Math.round(s))}</div><div class="sb-sig" style="color:${col};background:${bg}">${lbl} FCST</div></div></div>`;
+  }).join('');
+  const el=document.getElementById('surpBody'); if(el) el.innerHTML=`<div class="sb-grid">${cards}</div>`;
+}
 function miniSpark(series,w=130,h=24){
   const vals=series.map(p=>p.value).reverse();
   if(vals.length<2) return '';
@@ -762,6 +804,7 @@ function renderSentiment(ff){
              +(r.src==='MANUAL'?`<span class="sb-edit" onclick="clearManual('${r.ind.key}')" title="Clear manual override">✕</span>`:'');
     return `<div class="sb-row"><div class="sb-main"><div class="sb-name">${r.ind.name} <span class="sb-src ${srcCls}">${srcLbl}</span> ${edit}</div><div class="sb-sub">${r.ind.unit}${r.asof?' · '+r.asof:''} · w${r.ind.w} · score ${r.score>=0?'+':''}${r.score.toFixed(2)}</div>${spark}</div><div class="sb-right"><div class="sb-val" style="color:${st.c}">${r.ind.fmt(r.value)}</div><div class="sb-sig" style="color:${st.c};background:${st.bg}">${st.name}</div></div></div>`;
   }).join('')+`</div>`;
+  try{ renderSurprises(ff, rows); }catch(e){}
   return {nReal, nSample:SENT.length-nReal};
 }
 
