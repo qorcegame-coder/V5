@@ -156,6 +156,10 @@ body::after { content:''; position:fixed; top:-200px; left:-200px; width:600px; 
 /* market regime */
 .regime-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin-bottom: 18px; }
 .rg-tile { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+.rates-legend { display: flex; gap: 18px; font-family: var(--mono); font-size: 9px; color: var(--text2); margin-top: 10px; letter-spacing: 0.5px; }
+.rates-legend i { display: inline-block; width: 12px; height: 2px; margin-right: 5px; vertical-align: middle; }
+.rates-msg { font-family: var(--mono); font-size: 11px; color: var(--text2); padding: 24px; text-align: center; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); }
+.rates-chart { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
 .rg-tile.bull { border-left: 3px solid var(--green); }
 .rg-tile.bear { border-left: 3px solid var(--red); }
 .rg-label { font-family: var(--mono); font-size: 9px; color: var(--text2); letter-spacing: 1px; text-transform: uppercase; }
@@ -235,6 +239,7 @@ body::after { content:''; position:fixed; top:-200px; left:-200px; width:600px; 
       <div class="view-switch">
         <button class="vbtn active" id="vbCal" onclick="switchView('calendar')">CALENDAR</button>
         <button class="vbtn" id="vbMacro" onclick="switchView('macro')">MACRO &amp; SENTIMENT</button>
+        <button class="vbtn" id="vbRates" onclick="switchView('rates')">RATES</button>
       </div>
     </div>
     <div class="topbar-center" id="calControls">
@@ -316,6 +321,21 @@ body::after { content:''; position:fixed; top:-200px; left:-200px; width:600px; 
     </div>
   </div>
 
+  <!-- RATES VIEW -->
+  <div class="macro-view" id="ratesView">
+    <div class="macro-head">
+      <div>
+        <div class="macro-title">Rates &amp; Credit</div>
+        <div class="macro-sub" id="ratesSub">US Treasury yield curve · spreads · rate volatility</div>
+      </div>
+      <button class="refresh-btn" id="ratesRefBtn" onclick="loadRates(true)">↻ REFRESH</button>
+    </div>
+    <div class="macro-scroll">
+      <div class="mh-sec-title" style="margin-top:0">Treasury Yield Curve</div>
+      <div id="ratesBody"></div>
+    </div>
+  </div>
+
 </div>
 
 <script>
@@ -340,7 +360,7 @@ const MARKET_PROXIES = [ u => u, ...PUBLIC_PROXIES ];  // direct first
 
 // ── STATE ──
 let monthOffset = 0, filter = 'all', allEvents = [], selectedDate = null;
-let macroLoaded = false;
+let macroLoaded = false, ratesLoaded = false;
 let AV_RAW = {};   // captured Alpha Vantage series for the sentiment engine
 let FRED_RAW = {}; // captured FRED values (via Worker) keyed by indicator
 let LAST_FF = [];  // last-fetched Forex Factory events (for re-render after manual edits)
@@ -415,10 +435,13 @@ function sparkline(series){
 function switchView(v){
   document.querySelector('.main').style.display = v==='calendar'?'flex':'none';
   document.getElementById('macroView').style.display = v==='macro'?'flex':'none';
+  document.getElementById('ratesView').style.display = v==='rates'?'flex':'none';
   document.getElementById('calControls').style.visibility = v==='calendar'?'visible':'hidden';
   document.getElementById('vbCal').classList.toggle('active',v==='calendar');
   document.getElementById('vbMacro').classList.toggle('active',v==='macro');
+  document.getElementById('vbRates').classList.toggle('active',v==='rates');
   if(v==='macro' && !macroLoaded) loadMacroHistory();
+  if(v==='rates' && !ratesLoaded) loadRates();
 }
 
 // ── FILTER / NAV ──
@@ -831,6 +854,67 @@ async function loadMacroHistory(force=false){
   // Sentiment.
   const counts=renderSentiment(ff);
   sub.textContent=`${live}/${MACRO_SERIES.length} folders live · sentiment ${counts.nReal}/${SENT.length} from live/logged data`;
+  btn.classList.remove('spin'); btn.textContent='↻ REFRESH';
+}
+
+// ══════════════════════════════════════════════════
+// RATES — US Treasury yield curve + spreads (FRED via Worker)
+// ══════════════════════════════════════════════════
+const CURVE=[
+  {label:'1M',s:'DGS1MO'},{label:'3M',s:'DGS3MO'},{label:'6M',s:'DGS6MO'},
+  {label:'1Y',s:'DGS1'},{label:'2Y',s:'DGS2'},{label:'3Y',s:'DGS3'},
+  {label:'5Y',s:'DGS5'},{label:'7Y',s:'DGS7'},{label:'10Y',s:'DGS10'},
+  {label:'20Y',s:'DGS20'},{label:'30Y',s:'DGS30'},
+];
+// obs newest-first; return the value ~`days` before the newest observation.
+function pickByDaysAgo(obs, days){
+  if(!obs || !obs.length) return null;
+  const target=new Date(new Date(obs[0].date).getTime()-days*86400000).toISOString().split('T')[0];
+  for(const o of obs){ if(o.date<=target) return o.value; }
+  return obs[obs.length-1].value;
+}
+function yieldChartSVG(mats, today, m1, y1){
+  const W=1000,H=340,padL=44,padR=24,padT=24,padB=42,n=mats.length;
+  const xs=i=>padL+i*((W-padL-padR)/(n-1));
+  const all=[...today,...m1,...y1].filter(v=>v!=null);
+  if(!all.length) return '<div class="rates-msg">No yield data returned from FRED.</div>';
+  let min=Math.min(...all),max=Math.max(...all); const pd=(max-min)*0.15||0.3; min-=pd; max+=pd;
+  const ys=v=>padT+(1-(v-min)/(max-min))*(H-padT-padB);
+  const path=(data,stroke,dash,w)=>{ let d='',pen=false; data.forEach((v,i)=>{ if(v==null){pen=false;return;} d+=(pen?'L':'M')+xs(i).toFixed(1)+' '+ys(v).toFixed(1)+' '; pen=true; }); return `<path d="${d}" fill="none" stroke="${stroke}" stroke-width="${w}" ${dash?`stroke-dasharray="${dash}"`:''} stroke-linejoin="round" stroke-linecap="round"/>`; };
+  let grid='';
+  for(let g=0;g<=4;g++){ const val=min+(max-min)*g/4, y=ys(val); grid+=`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" stroke="#1c1c2e"/><text x="${padL-8}" y="${(y+3).toFixed(1)}" text-anchor="end" font-size="10" fill="#6868a0" font-family="monospace">${val.toFixed(1)}</text>`; }
+  let xlab=''; mats.forEach((m,i)=>{ xlab+=`<text x="${xs(i).toFixed(1)}" y="${H-padB+18}" text-anchor="middle" font-size="10" fill="#6868a0" font-family="monospace">${m.label}</text>`; });
+  let dots=''; today.forEach((v,i)=>{ if(v==null)return; dots+=`<circle cx="${xs(i).toFixed(1)}" cy="${ys(v).toFixed(1)}" r="3.5" fill="#22d3ee"/><text x="${xs(i).toFixed(1)}" y="${(ys(v)-9).toFixed(1)}" text-anchor="middle" font-size="10" fill="#e2e2f0" font-family="monospace">${v.toFixed(2)}</text>`; });
+  return `<div class="rates-chart"><div style="overflow-x:auto"><svg viewBox="0 0 ${W} ${H}" style="width:100%;min-width:640px;height:auto;display:block">
+    ${grid}${path(y1,'#6868a0','2 3',1.5)}${path(m1,'#ffb347','1 4',2.5)}${path(today,'#22d3ee',null,2.5)}${dots}${xlab}
+  </svg></div>
+  <div class="rates-legend"><span><i style="background:#22d3ee"></i>Today</span><span><i style="background:#ffb347"></i>1M ago</span><span><i style="background:#6868a0"></i>1Y ago</span></div></div>`;
+}
+function spreadTiles(s2s10, s3m10, move){
+  const t=(label,val)=>{ if(val==null) return `<div class="rg-tile"><div class="rg-label">${label}</div><div class="rg-val" style="color:var(--text3)">—</div></div>`;
+    const pos=val>=0, col=pos?'var(--green)':'var(--red)';
+    return `<div class="rg-tile"><div class="rg-label">${label}</div><div class="rg-val" style="color:${col}">${(val>=0?'+':'')+val.toFixed(2)}%</div><div class="rg-tag" style="color:${col}">${pos?'positive (normal)':'inverted'}</div></div>`; };
+  const mv = move==null
+    ? `<div class="rg-tile"><div class="rg-label">MOVE · Bond VIX</div><div class="rg-val" style="color:var(--text3)">—</div><div class="rg-tag" style="color:var(--text3)">source n/a</div></div>`
+    : `<div class="rg-tile"><div class="rg-label">MOVE · Bond VIX</div><div class="rg-val">${move.toFixed(0)}</div><div class="rg-tag" style="color:var(--text2)">rate volatility</div></div>`;
+  return `<div class="mh-sec-title">Spreads &amp; Volatility</div><div class="regime-row">${t('2s10s Spread',s2s10)}${t('3M–10Y Spread',s3m10)}${mv}</div>`;
+}
+async function loadRates(force=false){
+  ratesLoaded=true;
+  const host=document.getElementById('ratesBody'), btn=document.getElementById('ratesRefBtn'), sub=document.getElementById('ratesSub');
+  if(!PROXY){ host.innerHTML='<div class="rates-msg">Set your Cloudflare Worker URL in <b>PROXY</b> (top of the script) to enable live rates from FRED.</div>'; return; }
+  btn.classList.add('spin'); btn.textContent='↻ ...'; sub.textContent='Fetching the curve from FRED…';
+  host.innerHTML='<div class="skel" style="height:340px;width:100%;border-radius:12px"></div>';
+  const results=await Promise.allSettled(CURVE.map(c=>fredSeries(c.s)));
+  const today=[],m1=[],y1=[];
+  results.forEach((r,i)=>{ if(r.status==='fulfilled'&&r.value.length){ const o=r.value; today[i]=o[0].value; m1[i]=pickByDaysAgo(o,30); y1[i]=pickByDaysAgo(o,365); } else { today[i]=m1[i]=y1[i]=null; } });
+  const at=(arr,lab)=>{ const i=CURVE.findIndex(c=>c.label===lab); return i>=0?arr[i]:null; };
+  const s2s10=(at(today,'10Y')!=null&&at(today,'2Y')!=null)?at(today,'10Y')-at(today,'2Y'):null;
+  const s3m10=(at(today,'10Y')!=null&&at(today,'3M')!=null)?at(today,'10Y')-at(today,'3M'):null;
+  let move=null; try{ const mv=await fetchYahoo('^MOVE'); move=mv.last; }catch{}
+  host.innerHTML=yieldChartSVG(CURVE,today,m1,y1)+spreadTiles(s2s10,s3m10,move);
+  const nLive=today.filter(v=>v!=null).length;
+  sub.textContent=`${nLive}/${CURVE.length} maturities live · FRED daily constant-maturity yields`;
   btn.classList.remove('spin'); btn.textContent='↻ REFRESH';
 }
 
