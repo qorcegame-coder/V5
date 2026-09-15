@@ -758,7 +758,7 @@ function sentValue(ind, ff){
   }
   if(ind.src==='ff'){
     const fr=FRED_RAW[ind.key];               // live FRED via Worker (auto-updating) wins over the feed
-    if(fr && fr.value!=null){ ffLog(ind.key,fr.value,fr.date); return {value:fr.value, src:'FRED', asof:fr.date}; }
+    if(fr && fr.value!=null){ ffLog(ind.key,fr.value,fr.date); ffSetLast(ind.key,{value:fr.value,date:fr.date}); return {value:fr.value, src:'FRED', asof:fr.date}; }
     const hit=matchFF(ff, ind.ff);
     if(hit && hit.value!=null){
       if(hit.released){ ffLog(ind.key,hit.value,hit.date); ffSetLast(ind.key,{value:hit.value,date:hit.date}); return {value:hit.value, src:'FF', asof:hit.date}; }
