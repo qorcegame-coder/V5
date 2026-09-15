@@ -196,6 +196,9 @@ body::after { content:''; position:fixed; top:-200px; left:-200px; width:600px; 
 .sb-src.AV { background: var(--green-glow); color: var(--green); }
 .sb-src.FF { background: var(--accent-glow); color: var(--accent); }
 .sb-src.sample { background: var(--amber-glow); color: var(--amber); }
+.sb-src.MANUAL { background: rgba(124,107,255,0.22); color: var(--accent); }
+.sb-edit { cursor: pointer; color: var(--text3); margin-left: 4px; font-size: 11px; transition: color .15s; }
+.sb-edit:hover { color: var(--accent); }
 
 /* historical prints grid */
 .macro-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; }
@@ -299,9 +302,11 @@ body::after { content:''; position:fixed; top:-200px; left:-200px; width:600px; 
         <b>Method:</b> each indicator scored −2 (very dovish) … +2 (very hawkish) vs fixed thresholds, weighted, and averaged.
         Hawkish = data supports tighter Fed policy. &nbsp;<b>Sources:</b>
         <span style="color:var(--green)">AV</span> = Alpha Vantage (computed),
-        <span style="color:var(--accent)">FF</span> = Forex Factory latest release,
-        <span style="color:var(--accent)">FF·LOG</span> = last real Forex Factory print saved locally (persists once seen),
-        <span style="color:var(--amber)">SAMPLE</span> = never seen yet. FF prints are logged from now on, building real history. JOLTS &amp; inflation-expectations are omitted (they need FRED).
+        <span style="color:var(--accent)">FF</span> = Forex Factory feed (its free feed carries only the <i>previous</i> release, so it runs one print behind),
+        <span style="color:var(--accent)">FF·LOG</span> = last value saved locally,
+        <span style="color:var(--accent)">MANUAL</span> = you typed it in,
+        <span style="color:var(--amber)">SAMPLE</span> = never seen yet.
+        <b>Tip:</b> when a release is out (e.g. ISM), click the <span style="color:var(--accent)">✎</span> next to it and type the value from ForexFactory — it persists and re-scores. JOLTS &amp; inflation-expectations are omitted (they need FRED).
       </div>
       <div id="sentBreak"></div>
 
@@ -332,6 +337,7 @@ const MARKET_PROXIES = [ u => u, ...PUBLIC_PROXIES ];  // direct first
 let monthOffset = 0, filter = 'all', allEvents = [], selectedDate = null;
 let macroLoaded = false;
 let AV_RAW = {};   // captured Alpha Vantage series for the sentiment engine
+let LAST_FF = [];  // last-fetched Forex Factory events (for re-render after manual edits)
 
 const MAG7 = new Set(['NVDA','AAPL','MSFT','GOOGL','GOOG','AMZN','META','TSLA']);
 const isMag7 = t => MAG7.has(t?.trim().toUpperCase());
@@ -618,7 +624,28 @@ function miniSpark(series,w=130,h=24){
   const col=vals[vals.length-1]>=vals[0]?'var(--green)':'var(--red)';
   return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block;margin-top:5px"><polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.3"/></svg>`;
 }
+// ── Manual override ──────────────────────────────────────────────────────
+// The free ForexFactory feed only carries the PREVIOUS release (no live actual),
+// so type the value you see on the site: it wins over the feed, persists, and
+// logs into the history. Use the ✎ on each indicator; ✕ clears it.
+function ffGetManual(key){ try{ return JSON.parse(localStorage.getItem('ffman_'+key)); }catch{ return null; } }
+function ffSetManual(key,obj){ try{ localStorage.setItem('ffman_'+key, JSON.stringify(obj)); }catch{} }
+function ffClearManual(key){ try{ localStorage.removeItem('ffman_'+key); }catch{} }
+function setManual(key){
+  const ind=SENT.find(i=>i.key===key); if(!ind) return;
+  const cur=ffGetManual(key);
+  const raw=prompt('Enter the latest '+ind.name+' value ('+ind.unit+'):', cur?cur.value:'');
+  if(raw==null) return;
+  const v=parseFloat(String(raw).replace(/[^0-9.\-]/g,''));
+  if(isNaN(v)){ alert('Not a number — nothing changed.'); return; }
+  ffSetManual(key,{value:v,date:today()}); ffLog(key,v,today());
+  renderSentiment(LAST_FF);
+}
+function clearManual(key){ ffClearManual(key); renderSentiment(LAST_FF); }
+
 function sentValue(ind, ff){
+  const man=ffGetManual(ind.key);                 // manual override wins over everything
+  if(man && man.value!=null) return {value:man.value, src:'MANUAL', asof:man.date};
   if(ind.src==='av'){
     const rec=AV_RAW[ind.av];
     if(rec&&rec.live){
@@ -669,11 +696,13 @@ function renderSentiment(ff){
     </div>`;
   document.getElementById('sentBreak').innerHTML=`<div class="sb-grid">`+rows.map(r=>{
     const st=sigStyle(r.score);
-    const srcCls=r.src==='AV'?'AV':(r.src==='sample'?'sample':'FF');
-    const srcLbl=r.src==='AV'?'AV':(r.src==='sample'?'SAMPLE':(r.src==='FFlog'?'FF·LOG':'FF'));
-    const log=(r.ind.src==='ff')?ffLogGet(r.ind.key):null;
+    const srcCls=r.src==='AV'?'AV':(r.src==='sample'?'sample':(r.src==='MANUAL'?'MANUAL':'FF'));
+    const srcLbl=r.src==='AV'?'AV':(r.src==='sample'?'SAMPLE':(r.src==='FFlog'?'FF·LOG':(r.src==='MANUAL'?'MANUAL':'FF')));
+    const log=ffLogGet(r.ind.key);
     const spark=(log&&log.length>=2)?miniSpark(log):'';
-    return `<div class="sb-row"><div class="sb-main"><div class="sb-name">${r.ind.name} <span class="sb-src ${srcCls}">${srcLbl}</span></div><div class="sb-sub">${r.ind.unit}${r.asof?' · '+r.asof:''} · w${r.ind.w} · score ${r.score>=0?'+':''}${r.score.toFixed(2)}</div>${spark}</div><div class="sb-right"><div class="sb-val" style="color:${st.c}">${r.ind.fmt(r.value)}</div><div class="sb-sig" style="color:${st.c};background:${st.bg}">${st.name}</div></div></div>`;
+    const edit=`<span class="sb-edit" onclick="setManual('${r.ind.key}')" title="Type the latest value">✎</span>`
+             +(r.src==='MANUAL'?`<span class="sb-edit" onclick="clearManual('${r.ind.key}')" title="Clear manual override">✕</span>`:'');
+    return `<div class="sb-row"><div class="sb-main"><div class="sb-name">${r.ind.name} <span class="sb-src ${srcCls}">${srcLbl}</span> ${edit}</div><div class="sb-sub">${r.ind.unit}${r.asof?' · '+r.asof:''} · w${r.ind.w} · score ${r.score>=0?'+':''}${r.score.toFixed(2)}</div>${spark}</div><div class="sb-right"><div class="sb-val" style="color:${st.c}">${r.ind.fmt(r.value)}</div><div class="sb-sig" style="color:${st.c};background:${st.bg}">${st.name}</div></div></div>`;
   }).join('')+`</div>`;
   return {nReal, nSample:SENT.length-nReal};
 }
@@ -756,6 +785,7 @@ async function loadMacroHistory(force=false){
 
   // Forex Factory latest prints (for PCE / claims / PMI / PPI).
   let ff=[]; try{ ff=await fetchFFRaw(); }catch{}
+  LAST_FF=ff;
 
   // Sentiment.
   const counts=renderSentiment(ff);
